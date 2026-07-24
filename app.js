@@ -25,6 +25,8 @@
     loadTimer: null,
     currentBdnb: null,
     currentEnvelope: null,
+    bdnbInflight: new Map(),
+    bdnbCacheMinutes: 30,
     parcels: [],
     parcelLayer: null,
     dvf: [],
@@ -135,27 +137,95 @@
     $("#progress-bar").style.width = `${Math.max(0, Math.min(100, value))}%`;
   }
 
-  async function getJSON(url) {
-    let response;
-    try {
-      response = await fetch(url, {
-        cache: "no-store",
-        mode: "cors",
-        headers: { "Accept": "application/json" }
-      });
-    } catch (error) {
-      throw new Error(
-        `Connexion bloquée par le navigateur ou le réseau : ${error.message}`
-      );
-    }
-    const text = await response.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
-    if (!response.ok) {
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function getJSON(url, options = {}) {
+    const {
+      retries = 0,
+      retryDelay = 900,
+      cacheMode = "no-store"
+    } = options;
+
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      let response;
+      try {
+        response = await fetch(url, {
+          cache: cacheMode,
+          mode: "cors",
+          headers: { "Accept": "application/json" }
+        });
+      } catch (error) {
+        lastError = new Error(
+          `Connexion bloquée par le navigateur ou le réseau : ${error.message}`
+        );
+        if (attempt < retries) {
+          await sleep(retryDelay * (attempt + 1));
+          continue;
+        }
+        throw lastError;
+      }
+
+      const text = await response.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; }
+      catch { data = { raw: text }; }
+
+      if (response.ok) return data;
+
       const detail = data?.detail || data?.error || `HTTP ${response.status}`;
-      throw new Error(detail);
+      const error = new Error(detail);
+      error.status = response.status;
+      lastError = error;
+
+      const retryable = [429, 500, 502, 503, 504].includes(response.status);
+      if (retryable && attempt < retries) {
+        const retryAfter = Number(response.headers.get("Retry-After"));
+        const wait = Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : retryDelay * Math.pow(2, attempt);
+        await sleep(wait);
+        continue;
+      }
+
+      throw error;
     }
-    return data;
+
+    throw lastError || new Error("Réponse API indisponible.");
+  }
+
+  function bdnbCacheKey(rnbId) {
+    return `observatoire-bati:bdnb:${rnbId}`;
+  }
+
+  function readBdnbCache(rnbId) {
+    try {
+      const raw = localStorage.getItem(bdnbCacheKey(rnbId));
+      if (!raw) return null;
+      const cached = JSON.parse(raw);
+      const maxAge = state.bdnbCacheMinutes * 60 * 1000;
+      if (!cached?.savedAt || Date.now() - cached.savedAt > maxAge) {
+        localStorage.removeItem(bdnbCacheKey(rnbId));
+        return null;
+      }
+      return cached.value || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeBdnbCache(rnbId, value) {
+    try {
+      localStorage.setItem(
+        bdnbCacheKey(rnbId),
+        JSON.stringify({ savedAt: Date.now(), value })
+      );
+    } catch (error) {
+      console.warn("Cache BDNB", error);
+    }
   }
 
   async function loadMetadata() {
@@ -266,93 +336,136 @@
   }
 
   async function fetchBdnbByRnb(rnbId) {
-    const relationCandidates = [
-      {
-        table: "rel_batiment_construction_rnb",
-        params: {
-          "rnb_id": `eq.${rnbId}`,
-          "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
-          "limit": "20"
+    const cached = readBdnbCache(rnbId);
+    if (cached) {
+      return { ...cached, cache: true };
+    }
+
+    if (state.bdnbInflight.has(rnbId)) {
+      return state.bdnbInflight.get(rnbId);
+    }
+
+    const requestPromise = (async () => {
+      const relationCandidates = [
+        {
+          table: "rel_batiment_construction_rnb",
+          params: {
+            "rnb_id": `eq.${rnbId}`,
+            "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
+            "limit": "20"
+          }
+        },
+        {
+          table: "batiment_construction",
+          params: {
+            "rnb_id": `eq.${rnbId}`,
+            "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
+            "limit": "20"
+          }
         }
-      },
-      {
-        table: "batiment_construction",
-        params: {
-          "rnb_id": `eq.${rnbId}`,
-          "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
-          "limit": "20"
+      ];
+
+      let relationRows = [];
+      let lastError = null;
+
+      for (const candidate of relationCandidates) {
+        try {
+          const params = new URLSearchParams(candidate.params);
+          const response = await getJSON(
+            `${CFG.bdnbBase}/donnees/${candidate.table}?${params}`,
+            { retries: 3, retryDelay: 1100 }
+          );
+          relationRows = rowsOf(response);
+          if (relationRows.length) break;
+        } catch (error) {
+          lastError = error;
+          if (error.status === 429) await sleep(1800);
         }
       }
-    ];
 
-    let relationRows = [];
-    let lastError = null;
+      const groupId = relationRows.find(row => row?.batiment_groupe_id)?.batiment_groupe_id;
 
-    for (const candidate of relationCandidates) {
-      try {
-        const params = new URLSearchParams(candidate.params);
-        const response = await getJSON(
-          `${CFG.bdnbBase}/donnees/${candidate.table}?${params}`
+      if (!groupId) {
+        throw new Error(
+          lastError?.message ||
+          "Aucune correspondance BDNB trouvée pour cet ID-RNB."
         );
-        relationRows = rowsOf(response);
-        if (relationRows.length) break;
-      } catch (error) {
-        lastError = error;
       }
-    }
 
-    const groupId = relationRows.find(row => row?.batiment_groupe_id)?.batiment_groupe_id;
+      // Les rubriques les plus utiles sont interrogées en premier.
+      const tables = [
+        ["rpls", "batiment_groupe_rpls"],
+        ["dpe", "batiment_groupe_dpe_representatif_logement"],
+        ["building", "batiment_groupe"],
+        ["usage", "batiment_groupe_synthese_propriete_usage"],
+        ["rnc", "batiment_groupe_rnc"],
+        ["risks", "batiment_groupe_risques"],
+        ["address", "batiment_groupe_adresse"],
+        ["bdtopo", "batiment_groupe_bdtopo_bat"],
+        ["renovation", "batiment_groupe_contrainte_opportunite_renovation"],
+        ["ffo", "batiment_groupe_ffo_bat"]
+      ];
 
-    if (!groupId) {
-      throw new Error(
-        lastError?.message ||
-        "Aucune correspondance BDNB trouvée pour cet ID-RNB."
-      );
-    }
+      const data = {};
+      const unavailable = [];
 
-    const tableNames = {
-      building: "batiment_groupe",
-      address: "batiment_groupe_adresse",
-      usage: "batiment_groupe_synthese_propriete_usage",
-      rpls: "batiment_groupe_rpls",
-      dpe: "batiment_groupe_dpe_representatif_logement",
-      rnc: "batiment_groupe_rnc",
-      risks: "batiment_groupe_risques",
-      bdtopo: "batiment_groupe_bdtopo_bat",
-      renovation: "batiment_groupe_contrainte_opportunite_renovation",
-      ffo: "batiment_groupe_ffo_bat"
-    };
-
-    const results = await Promise.allSettled(
-      Object.entries(tableNames).map(async ([key, table]) => {
+      // Surtout pas Promise.all : l'offre publique peut limiter les rafales.
+      for (let index = 0; index < tables.length; index++) {
+        const [key, table] = tables[index];
         const params = new URLSearchParams({
           "batiment_groupe_id": `eq.${groupId}`,
           "limit": "1"
         });
-        const response = await getJSON(`${CFG.bdnbBase}/donnees/${table}?${params}`);
-        return [key, rowsOf(response)[0] || null];
-      })
-    );
 
-    const data = {};
-    const unavailable = [];
+        try {
+          const response = await getJSON(
+            `${CFG.bdnbBase}/donnees/${table}?${params}`,
+            { retries: 2, retryDelay: 850 }
+          );
+          data[key] = rowsOf(response)[0] || null;
+        } catch (error) {
+          unavailable.push(`${key}: ${error.message}`);
+          data[key] = null;
 
-    for (const result of results) {
-      if (result.status === "fulfilled") {
-        const [key, value] = result.value;
-        data[key] = value;
-      } else {
-        unavailable.push(result.reason?.message || "source indisponible");
+          // Une limitation de débit impose une respiration supplémentaire.
+          if (error.status === 429) {
+            await sleep(2200);
+          }
+        }
+
+        // Petite pause entre deux tables pour respecter l'API publique.
+        if (index < tables.length - 1) {
+          await sleep(180);
+        }
       }
-    }
 
-    return {
-      rnb_id: rnbId,
-      batiment_groupe_id: groupId,
-      millesime: "2026-02.a",
-      data,
-      unavailable
-    };
+      const usefulCount = Object.values(data).filter(Boolean).length;
+      if (!usefulCount) {
+        throw new Error(
+          unavailable[0] || "Aucune donnée BDNB n’a pu être chargée."
+        );
+      }
+
+      const result = {
+        rnb_id: rnbId,
+        batiment_groupe_id: groupId,
+        millesime: "2026-02.a",
+        data,
+        unavailable,
+        partial: unavailable.length > 0
+      };
+
+      writeBdnbCache(rnbId, result);
+      return result;
+    })();
+
+    state.bdnbInflight.set(rnbId, requestPromise);
+
+    try {
+      return await requestPromise;
+    } finally {
+      state.bdnbInflight.delete(rnbId);
+    }
   }
 
   function rowsOf(value) {
@@ -368,20 +481,34 @@
 
     try {
       const result = await fetchBdnbByRnb(rnbId);
-      setApiStatus("bdnb", "ok", "Connecté");
+      setApiStatus(
+        "bdnb",
+        result?.partial ? "warn" : "ok",
+        result?.cache ? "Cache local" : result?.partial ? "Réponse partielle" : "Connecté"
+      );
       const record = result?.data || result?.record || result;
       renderBdnb(record, result);
-      live("ok", "Fiche bâtiment actualisée", "API BDNB");
+      live(
+        result?.partial ? "" : "ok",
+        "Fiche bâtiment actualisée",
+        result?.cache ? "données BDNB mises en cache" : "API BDNB"
+      );
       progress(100);
       setTimeout(() => progress(0), 450);
     } catch (error) {
       console.error(error);
-      setApiStatus("bdnb", "ko", "Indisponible");
+      setApiStatus(
+        "bdnb",
+        error?.status === 429 ? "warn" : "ko",
+        error?.status === 429 ? "API très sollicitée" : "Indisponible"
+      );
       setTextSafe("#summary-status", "Données complémentaires indisponibles");
       $("#summary-date").textContent = new Date().toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
       setTextSafe(
         "#summary-text",
-        "Les données complémentaires ne sont pas accessibles pour le moment. L’identité RNB et les informations cadastrales restent disponibles."
+        error?.status === 429
+          ? "La BDNB reçoit trop de demandes simultanées. Patientez quelques secondes puis sélectionnez de nouveau le bâtiment."
+          : "Les données complémentaires ne sont pas accessibles pour le moment. L’identité RNB et les informations cadastrales restent disponibles."
       );
       const drawerBody = document.querySelector("#drawer-body");
       if (drawerBody) {
