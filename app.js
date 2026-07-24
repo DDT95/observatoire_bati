@@ -113,7 +113,9 @@
   }
 
   function refreshGlobalApiState() {
-    const statuses = Object.values(state.apiStatus).map(item => item.state);
+    const statuses = Object.entries(state.apiStatus)
+      .filter(([source]) => source !== "qpv")
+      .map(([, item]) => item.state);
     const global = $("#global-api-state");
     if (!global) return;
 
@@ -470,7 +472,6 @@
             ${dataRow("Loyer moyen au m²", rpls.loyer_moyen_m2 != null ? `${rpls.loyer_moyen_m2} €/m²` : null)}
             ${dataRow("Type de construction", formatList(rpls.type_construction))}
             ${dataRow("Accessible PMR", yesNo(rpls.accessible_pmr))}
-            ${dataRow("Situé en QPV", yesNo(rpls.dans_qpv))}
             ${dataRow("Classe énergie principale RPLS", rpls.classe_ener_principale)}
             ${dataRow("Classe GES principale RPLS", rpls.classe_ges_principale)}
           </div>
@@ -576,24 +577,15 @@
       qpvContext
     });
 
-    const qpvStatusHtml = `
-      <div class="qpv-status-panel ${qpvContext ? "in" : "out"}">
-        <div class="label">Situation au regard de la politique de la ville</div>
-        <div class="value">${qpvContext ? `Dans le QPV : ${escapeHtml(qpvContext)}` : "Hors quartier prioritaire"}</div>
-      </div>`;
-
     $("#drawer-body").innerHTML =
-      qpvStatusHtml +
       synthesisHtml +
       `<div class="summary-cards">
         <div class="summary-card"><div class="n">Logements</div><div class="v">${escapeHtml(valueOrDash(totalHousing))}</div></div>
         <div class="summary-card"><div class="n">Logements sociaux</div><div class="v">${escapeHtml(valueOrDash(socialHousing))}</div></div>
         <div class="summary-card"><div class="n">Part sociale</div><div class="v">${escapeHtml(valueOrDash(socialShare))}</div></div>
-      </div>` +
-      `<div class="qpv-membership ${qpvContext ? "in" : "out"}">
-        ${qpvContext ? `Dans le QPV : ${escapeHtml(qpvContext)}` : "Hors quartier prioritaire"}
-      </div>` +
-      (qpvContext ? `<div class="context-banner"><div class="symbol">QPV</div><div class="text"><strong>${escapeHtml(qpvContext)}</strong>Le bâtiment est situé dans un quartier prioritaire de la politique de la ville 2024.</div></div>` : "") +
+      </div>`
+      +
+      
       renderIdentity(state.selectedFeature) +
       renderParcelSection() +
       renderDvfSection() +
@@ -675,12 +667,6 @@
             : "Aucune autorisation rapprochée",
           state.sitadel.length > 0,
           sitadelPending
-        )}
-        ${sourceCard(
-          "QPV",
-          context.qpvContext ? "Oui" : "Non",
-          context.qpvContext || "Hors quartier prioritaire · géographie 2024",
-          Boolean(context.qpvContext)
         )}
       </div>
     </section>`;
@@ -1391,9 +1377,8 @@
             className: "qpv-label"
           });
         }
-      }).addTo(map);
+      });
 
-      if (state.qpvLayer?.bringToBack) state.qpvLayer.bringToBack();
 
       if (state.currentBdnb && state.selectedFeature) {
         renderBdnb(state.currentBdnb, state.currentEnvelope || {});

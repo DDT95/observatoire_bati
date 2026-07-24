@@ -532,3 +532,12 @@ h1{font-size:32px;line-height:1;margin:4px 0;letter-spacing:-.055em;color:var(--
 }
 
 .qpv-legend{display:none!important;}
+
+/* Correctif demandé : aucune information QPV dans la page HTML. */
+.qpv-legend,
+.qpv-label,
+.qpv-membership,
+.qpv-status-panel,
+.context-banner {
+  display: none !important;
+}
