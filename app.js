@@ -91,6 +91,16 @@
     live("ko", "Fond de carte inaccessible", "le réseau bloque OpenStreetMap");
   });
 
+  function setTextSafe(selector, value) {
+    const element = document.querySelector(selector);
+    if (element) element.textContent = value;
+  }
+
+  function setHtmlSafe(selector, value) {
+    const element = document.querySelector(selector);
+    if (element) element.innerHTML = value;
+  }
+
   function setApiStatus(source, status, label) {
     state.apiStatus[source] = { state: status, label };
     const row = document.querySelector(`.source-monitor-row[data-source="${source}"]`);
@@ -126,8 +136,8 @@
 
   function live(kind, text, sub) {
     $("#live-dot").className = "live-dot" + (kind ? ` ${kind}` : "");
-    $("#live-text").textContent = text;
-    $("#live-sub").textContent = sub || "";
+    setTextSafe("#live-text", text);
+    setTextSafe("#live-sub", sub || "");
     $("#status-line").innerHTML = `<b>RNB + BDNB</b> · ${escapeHtml(text)}${sub ? ` · ${escapeHtml(sub)}` : ""}`;
   }
 
@@ -249,10 +259,10 @@
     const title = formatAddress(address) || "Bâtiment RNB";
     const rnbId = featureRnbId(feature);
 
-    $("#drawer-title").textContent = title;
+    setTextSafe("#drawer-title", title);
     $("#drawer-sub").textContent = rnbId ? `ID-RNB ${rnbId}` : "Identifiant non disponible";
-    $("#summary-status").textContent = "Interrogation de la BDNB";
-    $("#summary-date").textContent = "en cours";
+    setTextSafe("#summary-status", "Interrogation de la BDNB");
+    setTextSafe("#summary-date", "en cours");
     $("#summary-text").textContent = "La géométrie RNB est chargée. Recherche des données consolidées…";
     $("#drawer-body").innerHTML = renderIdentity(feature) + skeletonBlock();
     $("#drawer").classList.add("open");
@@ -377,11 +387,27 @@
     } catch (error) {
       console.error(error);
       setApiStatus("bdnb", "ko", "Indisponible");
-      $("#summary-status").textContent = "BDNB indisponible";
+      setTextSafe("#summary-status", "Données complémentaires indisponibles");
       $("#summary-date").textContent = new Date().toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
-      $("#summary-text").textContent = error.message;
-      $("#drawer-body").insertAdjacentHTML("beforeend", errorBlock(error.message));
-      live("ko", "Échec de l’appel BDNB", error.message);
+      setTextSafe(
+        "#summary-text",
+        "Les données complémentaires ne sont pas accessibles pour le moment. L’identité RNB et les informations cadastrales restent disponibles."
+      );
+      const drawerBody = document.querySelector("#drawer-body");
+      if (drawerBody) {
+        const existingLoading = drawerBody.querySelector(".bdnb-loading-block");
+        if (existingLoading) existingLoading.remove();
+        drawerBody.insertAdjacentHTML(
+          "beforeend",
+          `<div class="block">
+            <div class="block-title">Données complémentaires momentanément indisponibles</div>
+            <div class="notice">
+              La fiche conserve les informations RNB et cadastrales. Réessayez ultérieurement pour le DPE, le RPLS, la copropriété et les risques.
+            </div>
+          </div>`
+        );
+      }
+      live("ko", "BDNB momentanément indisponible", "les autres sources restent actives");
       progress(0);
     }
   }
@@ -420,10 +446,6 @@
     const rplsCount = rpls.nb_log ?? null;
     const rplsVintage = "2024";
     const bdnbVintage = envelope?.millesime || "2026-02.a";
-    $("#kpi-dpe-note").textContent =
-      dpeDate ? `établi le ${formatDate(dpeDate)}` : "aucun DPE représentatif";
-    $("#kpi-rpls-note").textContent =
-      rplsCount !== null ? `RPLS ${rplsVintage}` : `aucune donnée RPLS ${rplsVintage}`;
 
     const hasData = Object.values(data || {}).some(Boolean);
     $("#summary-status").textContent =
@@ -1318,12 +1340,9 @@
   }
 
   function skeletonBlock() {
-    return `<div class="section-title">BDNB</div><div class="block"><div class="summary-text">Chargement des données consolidées…</div></div>`;
+    return `<div class="section-title">BDNB</div><div class="block bdnb-loading-block"><div class="summary-text">Chargement des données consolidées…</div></div>`;
   }
 
-  function errorBlock(message) {
-    return `<div class="section-title">Diagnostic technique</div><div class="block"><div class="block-title">La BDNB n’a pas répondu</div><p>${escapeHtml(message)}</p></div>`;
-  }
 
   async function loadQpvLayer() {
     try {
@@ -1333,7 +1352,10 @@
         /geojson/i.test(resource.format || "") ||
         /\.geojson($|\?)/i.test(resource.url || "")
       );
-      if (!geoResource?.url) return;
+      if (!geoResource?.url) {
+        setApiStatus("qpv", "warn", "Aucune couche");
+        return;
+      }
 
       const geojson = await getJSON(geoResource.url);
       const filtered = {
@@ -1352,7 +1374,11 @@
         })
       };
 
-      setApiStatus("qpv", "ok", `${filtered.features.length} QPV`);
+      setApiStatus(
+        "qpv",
+        filtered.features.length ? "ok" : "warn",
+        filtered.features.length ? `${filtered.features.length} QPV` : "Aucun périmètre"
+      );
       state.qpvLayer = L.geoJSON(filtered, {
         pane: "overlayPane",
         style: {

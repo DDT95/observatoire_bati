@@ -62,3 +62,12 @@ Pour remplacer la version publiée :
 - légende QPV plus claire ;
 - statut QPV visible immédiatement en haut de la fiche bâtiment ;
 - maintien du détail QPV dans la synthèse et dans le PDF.
+
+
+## Correctif V21
+
+- correction du faux message « BDNB indisponible » provoqué par les anciens KPI supprimés ;
+- suppression du bloc « Diagnostic technique » ;
+- messages destinés aux utilisateurs métier, sans erreur JavaScript affichée ;
+- accès à l’interface sécurisés lorsqu’un élément HTML est absent ;
+- voyant QPV sorti de l’état « En attente » lorsqu’aucune couche n’est disponible.
