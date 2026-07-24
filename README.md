@@ -1,17 +1,26 @@
-# Observatoire du bâti du Val-d’Oise — V26 stable
+# Observatoire du bâti du Val-d’Oise — V27 corrigée
 
-## Architecture BDNB
+## Correction BDNB
 
-Chaque sélection de bâtiment déclenche au maximum :
+La relation BDNB correcte est :
 
-1. une requête de relation ID-RNB → groupe BDNB ;
-2. une requête vers `batiment_groupe_complet`.
+1. `rel_batiment_construction_rnb` : ID-RNB → `batiment_construction_id`
+2. `batiment_construction` : `batiment_construction_id` → `batiment_groupe_id`
+3. `batiment_groupe_complet` : chargement de la fiche complète
 
-La réponse complète est ensuite répartie localement dans les rubriques DPE, RPLS,
-copropriété, risques, usages, rénovation et caractéristiques physiques.
+La version précédente cherchait à tort `batiment_groupe_id` dans la première table.
 
-- aucun appel parallèle aux dix tables métier ;
-- cache navigateur d’une heure ;
-- mutualisation des clics simultanés ;
-- nouvelles tentatives automatiques pour les erreurs 429/503 ;
-- cadastre, DVF et Sitadel restent indépendants de la BDNB.
+## Correction PDF
+
+La valeur `isInQpv` est maintenant recalculée dans la fonction d’export à partir
+de `dans_qpv` fourni par la BDNB / RPLS. L’erreur JavaScript n’existe plus.
+
+## Déploiement GitHub Pages
+
+Remplacer :
+
+- `index.html`
+- `app.js`
+- `styles.css`
+
+Puis valider le commit et effectuer `Ctrl + F5`.

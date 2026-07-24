@@ -328,62 +328,101 @@
     }
 
     const promise = (async () => {
-      // Appel 1 : relation RNB -> groupe BDNB.
+      // Appel 1 : ID-RNB -> identifiant bâtiment construction.
       const relationParams = new URLSearchParams({
         "rnb_id": `eq.${rnbId}`,
-        "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
+        "select": "rnb_id,batiment_construction_id,type_appariement",
         "limit": "20"
       });
 
-      let relationResponse;
-      try {
-        relationResponse = await getJSON(
-          `${CFG.bdnbBase}/donnees/rel_batiment_construction_rnb?${relationParams}`,
-          { retries: 2, retryDelay: 1100 }
-        );
-      } catch (firstError) {
-        // Compatibilité si la vue relationnelle n'est pas exposée par l'offre Open.
-        relationResponse = await getJSON(
-          `${CFG.bdnbBase}/donnees/batiment_construction?${relationParams}`,
-          { retries: 2, retryDelay: 1100 }
-        );
-      }
+      const relationResponse = await getJSON(
+        `${CFG.bdnbBase}/donnees/rel_batiment_construction_rnb?${relationParams}`,
+        { retries: 3, retryDelay: 1100 }
+      );
 
       const relationRows = rowsOf(relationResponse);
-      const groupId = relationRows.find(row => row?.batiment_groupe_id)?.batiment_groupe_id;
-      if (!groupId) {
-        throw new Error("Aucune correspondance BDNB trouvée pour ce bâtiment.");
+      const constructionIds = [...new Set(
+        relationRows
+          .map(row => row?.batiment_construction_id)
+          .filter(Boolean)
+      )];
+
+      if (!constructionIds.length) {
+        throw new Error("Aucune correspondance BDNB trouvée pour cet ID-RNB.");
       }
 
-      // Appel 2 : vue complète agrégée du groupe de bâtiment.
+      // Appel 2 : bâtiment construction -> groupe de bâtiments.
+      // Une entrée RNB peut exceptionnellement être liée à plusieurs constructions.
+      const constructionFilter = constructionIds.length === 1
+        ? `eq.${constructionIds[0]}`
+        : `in.(${constructionIds.join(",")})`;
+
+      const constructionParams = new URLSearchParams({
+        "batiment_construction_id": constructionFilter,
+        "select": "batiment_construction_id,batiment_groupe_id",
+        "limit": "50"
+      });
+
+      const constructionResponse = await getJSON(
+        `${CFG.bdnbBase}/donnees/batiment_construction?${constructionParams}`,
+        { retries: 3, retryDelay: 1100 }
+      );
+
+      const constructionRows = rowsOf(constructionResponse);
+      const groupIds = [...new Set(
+        constructionRows
+          .map(row => row?.batiment_groupe_id)
+          .filter(Boolean)
+      )];
+
+      if (!groupIds.length) {
+        throw new Error(
+          "Le bâtiment RNB est connu de la BDNB, mais aucun groupe de bâtiments n’a été retrouvé."
+        );
+      }
+
+      // La majorité des associations sont 1 RNB = 1 groupe.
+      // En cas de relation complexe, on prend le premier groupe exposé par la BDNB.
+      const groupId = groupIds[0];
+
+      // Appel 3 : fiche complète agrégée.
       const completeParams = new URLSearchParams({
         "batiment_groupe_id": `eq.${groupId}`,
         "limit": "1"
       });
+
       const completeResponse = await getJSON(
         `${CFG.bdnbBase}/donnees/batiment_groupe_complet?${completeParams}`,
         { retries: 3, retryDelay: 1300 }
       );
+
       const completeRows = rowsOf(completeResponse);
       const record = completeRows[0] || null;
+
       if (!record) {
-        throw new Error("La BDNB a identifié le bâtiment mais n'a renvoyé aucune fiche complète.");
+        throw new Error(
+          "La BDNB a identifié le bâtiment mais n’a renvoyé aucune fiche complète."
+        );
       }
 
       const data = splitCompleteBdnbRecord(record);
       const result = {
         rnb_id: rnbId,
+        batiment_construction_ids: constructionIds,
         batiment_groupe_id: groupId,
+        batiment_groupe_ids: groupIds,
         millesime: "2026-02.a",
         data,
         complete_record: record,
-        partial: false
+        partial: groupIds.length > 1
       };
+
       writeBdnbCache(rnbId, result);
       return result;
     })();
 
     state.bdnbInflight.set(rnbId, promise);
+
     try {
       return await promise;
     } finally {
@@ -465,7 +504,7 @@
       setApiStatus("bdnb", "ok", result?.cache ? "Cache local" : "Connecté");
       const record = result?.data || result?.record || result;
       renderBdnb(record, result);
-      live("ok", "Fiche bâtiment actualisée", result?.cache ? "cache BDNB" : "2 appels BDNB");
+      live("ok", "Fiche bâtiment actualisée", result?.cache ? "cache BDNB" : "API BDNB");
       progress(100);
       setTimeout(() => progress(0), 450);
     } catch (error) {
@@ -476,6 +515,7 @@
         error?.status === 429 ? "API très sollicitée" : "Indisponible"
       );
       setTextSafe("#summary-status", "Données complémentaires indisponibles");
+      $("#btn-export").disabled = true;
       $("#summary-date").textContent = new Date().toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
       setTextSafe(
         "#summary-text",
@@ -1506,6 +1546,14 @@
       const envelope = state.currentEnvelope || {};
       const data = state.currentBdnb;
       const rpls = data.rpls || {};
+      const qpvRaw =
+        rpls.dans_qpv ??
+        rpls.dans_qp ??
+        rpls.qpv ??
+        data?.building?.dans_qpv ??
+        data?.ffo?.dans_qpv ??
+        null;
+      const isInQpv = normalizeBoolean(qpvRaw);
       const isSocialHousing = Number(rpls.nb_log) > 0;
       const generated = new Date().toLocaleString("fr-FR");
       const bdnbVintage = envelope.millesime || "2026-02.a";
