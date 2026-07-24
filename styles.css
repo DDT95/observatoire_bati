@@ -459,3 +459,74 @@ h1{font-size:32px;line-height:1;margin:4px 0;letter-spacing:-.055em;color:var(--
 @media(max-width:560px){
   .summary-source-grid{grid-template-columns:1fr 1fr}
 }
+
+
+/* V20 — carte prioritaire et QPV renforcés */
+.map-zone{
+  display:block;
+  min-height:0;
+}
+.map-card{
+  height:100%;
+  min-height:0;
+}
+#map{
+  height:100%;
+  min-height:640px;
+}
+.kpis{
+  display:none!important;
+}
+.qpv-legend{
+  right:16px;
+  bottom:16px;
+  padding:10px 13px;
+  background:rgba(255,255,255,.96);
+  border:1px solid #ddcfee;
+  color:#4b3566;
+  font-size:11px;
+}
+.qpv-swatch{
+  width:22px;
+  height:13px;
+  border:2px dashed #6f4c9b;
+  background:rgba(111,76,155,.12);
+}
+.qpv-label{
+  font-size:11px!important;
+  padding:4px 8px!important;
+}
+.qpv-status-panel{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin:0 0 12px;
+  padding:12px 14px;
+  border-radius:14px;
+  border:1px solid #ded4ea;
+  background:#faf7fd;
+}
+.qpv-status-panel .label{
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:#6b5a7f;
+  font-weight:950;
+}
+.qpv-status-panel .value{
+  font-size:14px;
+  font-weight:1000;
+  color:#4b3566;
+  text-align:right;
+}
+.qpv-status-panel.out{
+  border-color:#dfe5ef;
+  background:#f7f9fc;
+}
+.qpv-status-panel.out .value{
+  color:#475569;
+}
+@media(max-width:900px){
+  #map{min-height:560px}
+}

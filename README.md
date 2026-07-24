@@ -52,3 +52,13 @@ Pour remplacer la version publiée :
 2. envoyer les nouveaux fichiers ;
 3. valider avec **Commit changes** ;
 4. attendre généralement une à deux minutes.
+
+
+## Version V20
+
+- suppression des quatre gros indicateurs au-dessus de la carte ;
+- carte agrandie et prioritaire ;
+- QPV 2024 renforcés visuellement ;
+- légende QPV plus claire ;
+- statut QPV visible immédiatement en haut de la fiche bâtiment ;
+- maintien du détail QPV dans la synthèse et dans le PDF.

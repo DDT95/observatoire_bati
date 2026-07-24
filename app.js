@@ -159,9 +159,7 @@
   }
 
   async function loadMetadata() {
-    state.metadata = { millesime: "API courante" };
-    $("#kpi-millesime").textContent = "API";
-    $("#kpi-query-time").textContent = "version publiée";
+    state.metadata = { millesime: "2026-02.a" };
   }
 
   function featureRnbId(feature) {
@@ -207,7 +205,6 @@
         state.geoLayer.remove();
         state.geoLayer = null;
       }
-      $("#kpi-visible").textContent = "—";
       $("#map-help").style.display = "";
       live("", "Zoomez pour afficher les bâtiments", `niveau ${CFG.minZoom} minimum`);
       return;
@@ -234,7 +231,6 @@
       }).addTo(map);
 
       const count = collection?.features?.length || 0;
-      $("#kpi-visible").textContent = count;
       live("ok", `${count} bâtiments chargés`, "cliquez sur une emprise");
       progress(100);
       setTimeout(() => progress(0), 450);
@@ -267,9 +263,6 @@
     loadCadastreForFeature(feature);
     loadDvfForFeature(feature);
     loadSitadelForFeature(feature);
-
-    $("#kpi-dpe").textContent = "…";
-    $("#kpi-rpls").textContent = "…";
   }
 
   async function fetchBdnbByRnb(rnbId) {
@@ -388,8 +381,6 @@
       $("#summary-date").textContent = new Date().toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
       $("#summary-text").textContent = error.message;
       $("#drawer-body").insertAdjacentHTML("beforeend", errorBlock(error.message));
-      $("#kpi-dpe").textContent = "—";
-      $("#kpi-rpls").textContent = "—";
       live("ko", "Échec de l’appel BDNB", error.message);
       progress(0);
     }
@@ -429,15 +420,10 @@
     const rplsCount = rpls.nb_log ?? null;
     const rplsVintage = "2024";
     const bdnbVintage = envelope?.millesime || "2026-02.a";
-
-    $("#kpi-dpe").textContent = valueOrDash(dpeClass);
     $("#kpi-dpe-note").textContent =
       dpeDate ? `établi le ${formatDate(dpeDate)}` : "aucun DPE représentatif";
-    $("#kpi-rpls").textContent = valueOrDash(rplsCount);
     $("#kpi-rpls-note").textContent =
       rplsCount !== null ? `RPLS ${rplsVintage}` : `aucune donnée RPLS ${rplsVintage}`;
-    $("#kpi-millesime").textContent = "À jour";
-    $("#kpi-query-time").textContent = `BDNB ${bdnbVintage}`;
 
     const hasData = Object.values(data || {}).some(Boolean);
     $("#summary-status").textContent =
@@ -573,7 +559,14 @@
       qpvContext
     });
 
+    const qpvStatusHtml = `
+      <div class="qpv-status-panel ${qpvContext ? "in" : "out"}">
+        <div class="label">Situation au regard de la politique de la ville</div>
+        <div class="value">${qpvContext ? `Dans le QPV : ${escapeHtml(qpvContext)}` : "Hors quartier prioritaire"}</div>
+      </div>`;
+
     $("#drawer-body").innerHTML =
+      qpvStatusHtml +
       synthesisHtml +
       `<div class="summary-cards">
         <div class="summary-card"><div class="n">Logements</div><div class="v">${escapeHtml(valueOrDash(totalHousing))}</div></div>
@@ -1364,10 +1357,10 @@
         pane: "overlayPane",
         style: {
           color: "#6f4c9b",
-          weight: 2,
-          dashArray: "6 5",
+          weight: 2.4,
+          dashArray: "7 5",
           fillColor: "#6f4c9b",
-          fillOpacity: .08,
+          fillOpacity: .11,
           interactive: true
         },
         onEachFeature(feature, layer) {
@@ -1379,6 +1372,7 @@
           });
         }
       }).addTo(map);
+      if (state.qpvLayer?.bringToBack) state.qpvLayer.bringToBack();
     } catch (error) {
       console.warn("QPV non chargé", error);
       setApiStatus("qpv", "ko", "Indisponible");
