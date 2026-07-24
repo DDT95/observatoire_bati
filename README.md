@@ -1,17 +1,13 @@
-# Observatoire du bâti — V22 QPV locaux dans la fiche
+# Observatoire du bâti — bouton QPV
 
-Les 42 périmètres QPV fournis par la DDT95 sont intégrés directement dans `app.js`.
+Ajout unique :
 
-Ajouts :
+- bouton Leaflet « Masquer les QPV / Afficher les QPV » ;
+- la légende suit automatiquement la visibilité du calque ;
+- le calcul QPV dans la fiche reste actif même lorsque le calque est masqué ;
+- aucune modification de la BDNB, du DPE, du RPLS, du cadastre, de DVF, de Sitadel ou du PDF.
 
-- légende légère permanente sur la carte ;
-- statut du bâtiment calculé par point-dans-polygone ;
-- affichage « Dans le QPV : nom » ou « Hors QPV » ;
-- carte QPV dans la synthèse du bâtiment ;
-- aucune API QPV externe.
-
-Les fonctions BDNB, DPE, RPLS, cadastre, DVF, Sitadel et PDF ne sont pas réécrites.
-
-
-## Correctif
-La légende QPV est forcée sur une seule ligne.
+À remplacer sur GitHub :
+- index.html
+- app.js
+- styles.css

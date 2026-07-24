@@ -642,3 +642,56 @@ h1{font-size:32px;line-height:1;margin:4px 0;letter-spacing:-.055em;color:var(--
     text-align:left;
   }
 }
+
+
+/* Bouton de visibilité QPV */
+.qpv-toggle-control{
+  border:none!important;
+  box-shadow:none!important;
+  background:transparent!important;
+}
+.qpv-toggle-button{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  min-height:34px;
+  padding:0 11px;
+  border:1px solid rgba(196,59,50,.30);
+  border-radius:10px;
+  background:rgba(255,255,255,.96);
+  box-shadow:0 4px 14px rgba(15,23,42,.10);
+  color:#7d2a25;
+  font:800 10px/1 system-ui,-apple-system,"Segoe UI",sans-serif;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.qpv-toggle-button:hover{
+  background:#fff7f6;
+}
+.qpv-toggle-button.off{
+  border-color:#d9dee8;
+  color:#475569;
+  background:rgba(255,255,255,.94);
+}
+.qpv-toggle-swatch{
+  width:19px;
+  height:11px;
+  border:2px dashed #c43b32;
+  border-radius:3px;
+  background:rgba(196,59,50,.10);
+}
+.qpv-toggle-button.off .qpv-toggle-swatch{
+  border-color:#94a3b8;
+  background:transparent;
+}
+.qpv-map-legend.hidden{
+  display:none!important;
+}
+
+@media(max-width:700px){
+  .qpv-toggle-button{
+    min-height:32px;
+    padding:0 9px;
+    font-size:9px;
+  }
+}
