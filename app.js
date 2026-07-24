@@ -66,6 +66,12 @@
   parcelLegend.style.display = "none";
   document.querySelector(".map-card").appendChild(parcelLegend);
 
+  const qpvLegend = document.createElement("div");
+  qpvLegend.className = "qpv-map-legend";
+  qpvLegend.innerHTML =
+    '<span class="qpv-map-swatch"></span><span>Quartier prioritaire de la politique de la ville</span>';
+  document.querySelector(".map-card").appendChild(qpvLegend);
+
   const InfoControl = L.Control.extend({
     options: { position: "bottomleft" },
     onAdd() {
@@ -582,7 +588,21 @@
       qpvContext
     });
 
+    const qpvStatusHtml = `
+      <div class="qpv-status-panel ${qpvContext ? "in" : "out"}">
+        <div>
+          <div class="label">Politique de la ville</div>
+          <div class="source">Périmètres QPV DDT95 intégrés à la carte</div>
+        </div>
+        <div class="value">${
+          qpvContext
+            ? `Dans le QPV : ${escapeHtml(qpvContext)}`
+            : "Hors QPV"
+        }</div>
+      </div>`;
+
     $("#drawer-body").innerHTML =
+      qpvStatusHtml +
       synthesisHtml +
       `<div class="summary-cards">
         <div class="summary-card"><div class="n">Logements</div><div class="v">${escapeHtml(valueOrDash(totalHousing))}</div></div>
@@ -672,6 +692,14 @@
             : "Aucune autorisation rapprochée",
           state.sitadel.length > 0,
           sitadelPending
+        )}
+        ${sourceCard(
+          "QPV",
+          context.qpvContext ? "Oui" : "Non",
+          context.qpvContext
+            ? context.qpvContext
+            : "Bâtiment situé hors des périmètres QPV intégrés",
+          Boolean(context.qpvContext)
         )}
       </div>
     </section>`;

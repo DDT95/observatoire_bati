@@ -556,3 +556,88 @@ h1{font-size:32px;line-height:1;margin:4px 0;letter-spacing:-.055em;color:var(--
 .leaflet-qpv-pane path {
   vector-effect: non-scaling-stroke;
 }
+
+
+/* QPV locaux DDT95 : légende et statut métier */
+.qpv-map-legend{
+  position:absolute;
+  z-index:800;
+  right:14px;
+  bottom:14px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  max-width:260px;
+  padding:7px 10px;
+  border:1px solid rgba(196,59,50,.28);
+  border-radius:10px;
+  background:rgba(255,255,255,.92);
+  box-shadow:0 4px 14px rgba(15,23,42,.09);
+  color:#5f2c28;
+  font-size:10px;
+  font-weight:800;
+  line-height:1.2;
+  pointer-events:none;
+}
+.qpv-map-swatch{
+  flex:none;
+  width:22px;
+  height:12px;
+  border:2px dashed #c43b32;
+  border-radius:3px;
+  background:rgba(196,59,50,.10);
+}
+
+.qpv-status-panel{
+  display:flex!important;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin:0 0 12px;
+  padding:12px 14px;
+  border:1px solid #e4c8c5;
+  border-radius:14px;
+  background:#fff8f7;
+}
+.qpv-status-panel .label{
+  color:#8e2721;
+  font-size:10px;
+  font-weight:1000;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.qpv-status-panel .source{
+  margin-top:3px;
+  color:#7b6a68;
+  font-size:9px;
+}
+.qpv-status-panel .value{
+  color:#8e2721;
+  font-size:13px;
+  font-weight:1000;
+  text-align:right;
+}
+.qpv-status-panel.out{
+  border-color:#dfe5ef;
+  background:#f8fafc;
+}
+.qpv-status-panel.out .label,
+.qpv-status-panel.out .value{
+  color:#475569;
+}
+
+@media(max-width:700px){
+  .qpv-map-legend{
+    right:8px;
+    bottom:8px;
+    max-width:210px;
+    font-size:9px;
+  }
+  .qpv-status-panel{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .qpv-status-panel .value{
+    text-align:left;
+  }
+}
