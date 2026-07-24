@@ -552,3 +552,7 @@ h1{font-size:32px;line-height:1;margin:4px 0;letter-spacing:-.055em;color:var(--
   font-weight: 800 !important;
   box-shadow: 0 4px 12px rgba(15,23,42,.12) !important;
 }
+
+.leaflet-qpv-pane path {
+  vector-effect: non-scaling-stroke;
+}

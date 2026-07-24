@@ -1,14 +1,14 @@
-# Observatoire du bâti — V22 avec QPV local
+# Observatoire du bâti — V22 QPV intégrés
 
-Le périmètre QPV provient uniquement du fichier local fourni par la DDT95.
+Les 42 périmètres QPV sont directement intégrés dans `app.js`.
 
-- fichier source : QPV issu de QGIS ;
-- reprojection réalisée : EPSG:2154 vers WGS84 ;
-- fichier publié : `qpv_95.geojson` ;
-- 42 périmètres intégrés ;
-- aucune API QPV externe ;
-- aucune information Oui / Non affichée dans la fiche HTML ;
-- les périmètres sont seulement visibles sur la carte ;
-- le nom du QPV apparaît au survol.
+- aucun fichier GeoJSON séparé ;
+- aucune API QPV ;
+- couche toujours chargée avec la page ;
+- pane Leaflet dédié, au-dessus du fond et sous les bâtiments ;
+- aucune mention QPV dans la fiche HTML.
 
-Les autres fonctions de la V22 n'ont pas été réécrites.
+À déposer sur GitHub :
+- index.html
+- app.js
+- styles.css
