@@ -11,3 +11,7 @@ Ajouts :
 - aucune API QPV externe.
 
 Les fonctions BDNB, DPE, RPLS, cadastre, DVF, Sitadel et PDF ne sont pas réécrites.
+
+
+## Correctif
+La légende QPV est forcée sur une seule ligne.
