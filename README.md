@@ -1,34 +1,17 @@
-# Observatoire du bâti du Val-d’Oise — V24
+# Observatoire du bâti du Val-d’Oise — V26 stable
 
-## Correctif QPV
+## Architecture BDNB
 
-La fiche HTML n’utilise plus une couche géographique externe pour déterminer
-l’appartenance à un QPV.
+Chaque sélection de bâtiment déclenche au maximum :
 
-La valeur est lue directement dans les données BDNB / RPLS :
+1. une requête de relation ID-RNB → groupe BDNB ;
+2. une requête vers `batiment_groupe_complet`.
 
-```text
-dans_qpv
-```
+La réponse complète est ensuite répartie localement dans les rubriques DPE, RPLS,
+copropriété, risques, usages, rénovation et caractéristiques physiques.
 
-Cette source est la même que celle visible dans le PDF.
-
-La fiche affiche désormais :
-
-- **Dans un quartier prioritaire**
-- **Hors quartier prioritaire**
-- **Information non disponible**
-
-Aucune couche QPV n’est affichée sur la carte dans cette version.
-
-
-## Correctif V25 — stabilité BDNB sur GitHub Pages
-
-- suppression des dix requêtes BDNB lancées simultanément ;
-- chargement séquentiel des tables, avec une courte temporisation ;
-- trois nouvelles tentatives automatiques en cas de réponse 429 ou 503 ;
-- respect de l’en-tête `Retry-After` lorsqu’il est fourni ;
-- cache navigateur de 30 minutes par ID-RNB ;
-- mutualisation des clics simultanés sur le même bâtiment ;
-- affichage des réponses partielles au lieu de jeter toute la fiche ;
-- voyant « API très sollicitée » plutôt que « indisponible » en cas de limitation temporaire.
+- aucun appel parallèle aux dix tables métier ;
+- cache navigateur d’une heure ;
+- mutualisation des clics simultanés ;
+- nouvelles tentatives automatiques pour les erreurs 429/503 ;
+- cadastre, DVF et Sitadel restent indépendants de la BDNB.

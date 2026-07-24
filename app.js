@@ -26,7 +26,7 @@
     currentBdnb: null,
     currentEnvelope: null,
     bdnbInflight: new Map(),
-    bdnbCacheMinutes: 30,
+    bdnbCacheMinutes: 60,
     parcels: [],
     parcelLayer: null,
     dvf: [],
@@ -142,26 +142,19 @@
   }
 
   async function getJSON(url, options = {}) {
-    const {
-      retries = 0,
-      retryDelay = 900,
-      cacheMode = "no-store"
-    } = options;
-
+    const { retries = 0, retryDelay = 900 } = options;
     let lastError = null;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       let response;
       try {
         response = await fetch(url, {
-          cache: cacheMode,
+          cache: "no-store",
           mode: "cors",
           headers: { "Accept": "application/json" }
         });
       } catch (error) {
-        lastError = new Error(
-          `Connexion bloquée par le navigateur ou le réseau : ${error.message}`
-        );
+        lastError = new Error(`Connexion impossible : ${error.message}`);
         if (attempt < retries) {
           await sleep(retryDelay * (attempt + 1));
           continue;
@@ -176,13 +169,11 @@
 
       if (response.ok) return data;
 
-      const detail = data?.detail || data?.error || `HTTP ${response.status}`;
-      const error = new Error(detail);
+      const error = new Error(data?.detail || data?.error || `HTTP ${response.status}`);
       error.status = response.status;
       lastError = error;
 
-      const retryable = [429, 500, 502, 503, 504].includes(response.status);
-      if (retryable && attempt < retries) {
+      if ([429, 500, 502, 503, 504].includes(response.status) && attempt < retries) {
         const retryAfter = Number(response.headers.get("Retry-After"));
         const wait = Number.isFinite(retryAfter) && retryAfter > 0
           ? retryAfter * 1000
@@ -190,15 +181,13 @@
         await sleep(wait);
         continue;
       }
-
       throw error;
     }
-
-    throw lastError || new Error("Réponse API indisponible.");
+    throw lastError || new Error("API indisponible");
   }
 
   function bdnbCacheKey(rnbId) {
-    return `observatoire-bati:bdnb:${rnbId}`;
+    return `observatoire-bati:bdnb-complet:${rnbId}`;
   }
 
   function readBdnbCache(rnbId) {
@@ -207,22 +196,17 @@
       if (!raw) return null;
       const cached = JSON.parse(raw);
       const maxAge = state.bdnbCacheMinutes * 60 * 1000;
-      if (!cached?.savedAt || Date.now() - cached.savedAt > maxAge) {
-        localStorage.removeItem(bdnbCacheKey(rnbId));
-        return null;
-      }
+      if (!cached?.savedAt || Date.now() - cached.savedAt > maxAge) return null;
       return cached.value || null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
 
   function writeBdnbCache(rnbId, value) {
     try {
-      localStorage.setItem(
-        bdnbCacheKey(rnbId),
-        JSON.stringify({ savedAt: Date.now(), value })
-      );
+      localStorage.setItem(bdnbCacheKey(rnbId), JSON.stringify({
+        savedAt: Date.now(),
+        value
+      }));
     } catch (error) {
       console.warn("Cache BDNB", error);
     }
@@ -337,134 +321,131 @@
 
   async function fetchBdnbByRnb(rnbId) {
     const cached = readBdnbCache(rnbId);
-    if (cached) {
-      return { ...cached, cache: true };
-    }
+    if (cached) return { ...cached, cache: true };
 
     if (state.bdnbInflight.has(rnbId)) {
       return state.bdnbInflight.get(rnbId);
     }
 
-    const requestPromise = (async () => {
-      const relationCandidates = [
-        {
-          table: "rel_batiment_construction_rnb",
-          params: {
-            "rnb_id": `eq.${rnbId}`,
-            "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
-            "limit": "20"
-          }
-        },
-        {
-          table: "batiment_construction",
-          params: {
-            "rnb_id": `eq.${rnbId}`,
-            "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
-            "limit": "20"
-          }
-        }
-      ];
+    const promise = (async () => {
+      // Appel 1 : relation RNB -> groupe BDNB.
+      const relationParams = new URLSearchParams({
+        "rnb_id": `eq.${rnbId}`,
+        "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
+        "limit": "20"
+      });
 
-      let relationRows = [];
-      let lastError = null;
-
-      for (const candidate of relationCandidates) {
-        try {
-          const params = new URLSearchParams(candidate.params);
-          const response = await getJSON(
-            `${CFG.bdnbBase}/donnees/${candidate.table}?${params}`,
-            { retries: 3, retryDelay: 1100 }
-          );
-          relationRows = rowsOf(response);
-          if (relationRows.length) break;
-        } catch (error) {
-          lastError = error;
-          if (error.status === 429) await sleep(1800);
-        }
+      let relationResponse;
+      try {
+        relationResponse = await getJSON(
+          `${CFG.bdnbBase}/donnees/rel_batiment_construction_rnb?${relationParams}`,
+          { retries: 2, retryDelay: 1100 }
+        );
+      } catch (firstError) {
+        // Compatibilité si la vue relationnelle n'est pas exposée par l'offre Open.
+        relationResponse = await getJSON(
+          `${CFG.bdnbBase}/donnees/batiment_construction?${relationParams}`,
+          { retries: 2, retryDelay: 1100 }
+        );
       }
 
+      const relationRows = rowsOf(relationResponse);
       const groupId = relationRows.find(row => row?.batiment_groupe_id)?.batiment_groupe_id;
-
       if (!groupId) {
-        throw new Error(
-          lastError?.message ||
-          "Aucune correspondance BDNB trouvée pour cet ID-RNB."
-        );
+        throw new Error("Aucune correspondance BDNB trouvée pour ce bâtiment.");
       }
 
-      // Les rubriques les plus utiles sont interrogées en premier.
-      const tables = [
-        ["rpls", "batiment_groupe_rpls"],
-        ["dpe", "batiment_groupe_dpe_representatif_logement"],
-        ["building", "batiment_groupe"],
-        ["usage", "batiment_groupe_synthese_propriete_usage"],
-        ["rnc", "batiment_groupe_rnc"],
-        ["risks", "batiment_groupe_risques"],
-        ["address", "batiment_groupe_adresse"],
-        ["bdtopo", "batiment_groupe_bdtopo_bat"],
-        ["renovation", "batiment_groupe_contrainte_opportunite_renovation"],
-        ["ffo", "batiment_groupe_ffo_bat"]
-      ];
-
-      const data = {};
-      const unavailable = [];
-
-      // Surtout pas Promise.all : l'offre publique peut limiter les rafales.
-      for (let index = 0; index < tables.length; index++) {
-        const [key, table] = tables[index];
-        const params = new URLSearchParams({
-          "batiment_groupe_id": `eq.${groupId}`,
-          "limit": "1"
-        });
-
-        try {
-          const response = await getJSON(
-            `${CFG.bdnbBase}/donnees/${table}?${params}`,
-            { retries: 2, retryDelay: 850 }
-          );
-          data[key] = rowsOf(response)[0] || null;
-        } catch (error) {
-          unavailable.push(`${key}: ${error.message}`);
-          data[key] = null;
-
-          // Une limitation de débit impose une respiration supplémentaire.
-          if (error.status === 429) {
-            await sleep(2200);
-          }
-        }
-
-        // Petite pause entre deux tables pour respecter l'API publique.
-        if (index < tables.length - 1) {
-          await sleep(180);
-        }
+      // Appel 2 : vue complète agrégée du groupe de bâtiment.
+      const completeParams = new URLSearchParams({
+        "batiment_groupe_id": `eq.${groupId}`,
+        "limit": "1"
+      });
+      const completeResponse = await getJSON(
+        `${CFG.bdnbBase}/donnees/batiment_groupe_complet?${completeParams}`,
+        { retries: 3, retryDelay: 1300 }
+      );
+      const completeRows = rowsOf(completeResponse);
+      const record = completeRows[0] || null;
+      if (!record) {
+        throw new Error("La BDNB a identifié le bâtiment mais n'a renvoyé aucune fiche complète.");
       }
 
-      const usefulCount = Object.values(data).filter(Boolean).length;
-      if (!usefulCount) {
-        throw new Error(
-          unavailable[0] || "Aucune donnée BDNB n’a pu être chargée."
-        );
-      }
-
+      const data = splitCompleteBdnbRecord(record);
       const result = {
         rnb_id: rnbId,
         batiment_groupe_id: groupId,
         millesime: "2026-02.a",
         data,
-        unavailable,
-        partial: unavailable.length > 0
+        complete_record: record,
+        partial: false
       };
-
       writeBdnbCache(rnbId, result);
       return result;
     })();
 
-    state.bdnbInflight.set(rnbId, requestPromise);
-
+    state.bdnbInflight.set(rnbId, promise);
     try {
-      return await requestPromise;
+      return await promise;
     } finally {
       state.bdnbInflight.delete(rnbId);
+    }
+  }
+
+  function splitCompleteBdnbRecord(record) {
+    const sections = {
+      building: {}, address: {}, usage: {}, rpls: {}, dpe: {}, rnc: {},
+      risks: {}, bdtopo: {}, renovation: {}, ffo: {}
+    };
+
+    const rules = [
+      ["rpls", /(rpls|nb_log_loue|nb_log_vac|loyer_moyen|accessible_pmr|dans_qpv|classe_ener_principale|classe_ges_principale|raison_sociale_principal|siret_principal)/i],
+      ["dpe", /(dpe|classe_bilan|classe_emission|conso_5_usages|conso_3_usages|deperdition|type_energie_chauffage|type_installation_chauffage|type_ventilation|type_vitrage|isolation|surface_habitable)/i],
+      ["rnc", /(rnc|copro|syndic|numero_immat|nb_lot)/i],
+      ["risks", /(risque|argile|radon|sismique|incendie|inondation|submersion)/i],
+      ["renovation", /(renov|opportunite|contrainte|geother|solaire|pac|favorabilite)/i],
+      ["bdtopo", /(bdtopo|hauteur|max_hauteur|l_nature|l_usage)/i],
+      ["usage", /(usage|propriete|proprietaire|categorie_usage)/i],
+      ["address", /(adresse|ban_|code_postal|numero_voie|nom_voie)/i],
+      ["ffo", /(^nb_log$|annee_construction|fichier_foncier|ffo|surface_fiscale|local)/i]
+    ];
+
+    for (const [key, value] of Object.entries(record || {})) {
+      let assigned = false;
+      for (const [section, regex] of rules) {
+        if (regex.test(key)) {
+          sections[section][key] = value;
+          assigned = true;
+          break;
+        }
+      }
+      if (!assigned) sections.building[key] = value;
+    }
+
+    // Alias attendus par l'interface.
+    aliasFirst(sections.rpls, "nb_log", ["nb_log_rpls", "rpls_nb_log", "nombre_logements_rpls"]);
+    aliasFirst(sections.rpls, "nb_log_loue", ["rpls_nb_log_loue", "nombre_logements_loues_rpls"]);
+    aliasFirst(sections.rpls, "nb_log_vac", ["rpls_nb_log_vac", "nombre_logements_vacants_rpls"]);
+    aliasFirst(sections.rpls, "dans_qpv", ["rpls_dans_qpv", "dans_qp"]);
+    aliasFirst(sections.dpe, "classe_bilan_dpe", ["classe_bilan_dpe", "dpe_classe_bilan", "classe_dpe", "etiquette_dpe"]);
+    aliasFirst(sections.dpe, "classe_emission_ges", ["classe_emission_ges", "dpe_classe_ges", "classe_ges", "etiquette_ges"]);
+    aliasFirst(sections.dpe, "date_etablissement_dpe", ["date_etablissement_dpe", "dpe_date_etablissement", "date_dpe"]);
+    aliasFirst(sections.ffo, "nb_log", ["nb_log", "nombre_logements"]);
+
+    return sections;
+  }
+
+  function aliasFirst(target, canonical, candidates) {
+    if (target[canonical] !== undefined && target[canonical] !== null && target[canonical] !== "") return;
+    const entries = Object.entries(target);
+    for (const candidate of candidates) {
+      const exact = entries.find(([key, value]) =>
+        normalizeKeyName(key) === normalizeKeyName(candidate) &&
+        value !== null && value !== undefined && value !== ""
+      );
+      if (exact) {
+        target[canonical] = exact[1];
+        return;
+      }
     }
   }
 
@@ -481,18 +462,10 @@
 
     try {
       const result = await fetchBdnbByRnb(rnbId);
-      setApiStatus(
-        "bdnb",
-        result?.partial ? "warn" : "ok",
-        result?.cache ? "Cache local" : result?.partial ? "Réponse partielle" : "Connecté"
-      );
+      setApiStatus("bdnb", "ok", result?.cache ? "Cache local" : "Connecté");
       const record = result?.data || result?.record || result;
       renderBdnb(record, result);
-      live(
-        result?.partial ? "" : "ok",
-        "Fiche bâtiment actualisée",
-        result?.cache ? "données BDNB mises en cache" : "API BDNB"
-      );
+      live("ok", "Fiche bâtiment actualisée", result?.cache ? "cache BDNB" : "2 appels BDNB");
       progress(100);
       setTimeout(() => progress(0), 450);
     } catch (error) {
@@ -507,7 +480,7 @@
       setTextSafe(
         "#summary-text",
         error?.status === 429
-          ? "La BDNB reçoit trop de demandes simultanées. Patientez quelques secondes puis sélectionnez de nouveau le bâtiment."
+          ? "La BDNB est momentanément très sollicitée. La fiche sera réessayée automatiquement au prochain clic."
           : "Les données complémentaires ne sont pas accessibles pour le moment. L’identité RNB et les informations cadastrales restent disponibles."
       );
       const drawerBody = document.querySelector("#drawer-body");
