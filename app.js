@@ -6,7 +6,6 @@
     rnbBuilding: "https://rnb-api.beta.gouv.fr/api/alpha/buildings",
     rnbAddress: "https://rnb-api.beta.gouv.fr/api/alpha/buildings/address/",
     bdnbBase: "https://api.bdnb.io/v1/bdnb",
-    qpvGeojson: "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets/qp-politiquedelaville-shp/exports/geojson?lang=fr&timezone=Europe%2FParis",
     cadastreApi: "https://apicarto.ign.fr/api/cadastre/parcelle",
     dvfApiBases: [
       "https://apidf.k8-dev.cerema.fr",
@@ -24,7 +23,6 @@
     selectedFeature: null,
     metadata: null,
     loadTimer: null,
-    qpvLayer: null,
     currentBdnb: null,
     currentEnvelope: null,
     parcels: [],
@@ -39,7 +37,6 @@
       cadastre: { state: "pending", label: "En attente" },
       dvf: { state: "pending", label: "En attente" },
       sitadel: { state: "pending", label: "En attente" },
-      qpv: { state: "pending", label: "En attente" }
     }
   };
 
@@ -79,8 +76,6 @@
     }
   });
   map.addControl(new InfoControl());
-
-  loadQpvLayer();
 
   map.on("tileerror", () => {
     live("ko", "Fond de carte inaccessible", "le réseau bloque OpenStreetMap");
@@ -407,6 +402,15 @@
     }
   }
 
+  function normalizeBoolean(value) {
+    if (value === true) return true;
+    if (value === false) return false;
+    const text = String(value ?? "").trim().toLowerCase();
+    if (["oui", "yes", "true", "1", "o"].includes(text)) return true;
+    if (["non", "no", "false", "0", "n"].includes(text)) return false;
+    return null;
+  }
+
   function renderBdnb(data, envelope) {
     state.currentBdnb = data;
     state.currentEnvelope = envelope;
@@ -414,6 +418,16 @@
     const dpe = data?.dpe || {};
     const rpls = data?.rpls || {};
     const usage = data?.usage || {};
+
+    const qpvRaw =
+      rpls.dans_qpv ??
+      rpls.dans_qp ??
+      rpls.qpv ??
+      data?.building?.dans_qpv ??
+      data?.ffo?.dans_qpv ??
+      null;
+
+    const isInQpv = normalizeBoolean(qpvRaw);
     const rnc = data?.rnc || {};
     const risks = data?.risks || {};
     const bdtopo = data?.bdtopo || {};
@@ -558,8 +572,6 @@
       )
       .slice(0, 8)
       .map(([key, value]) => [humanizeKey(key), value]);
-
-    const qpvContext = selectedQpvContext();
     const totalHousing = ffo.nb_log ?? building.nb_log ?? null;
     const socialHousing = rpls.nb_log ?? null;
     const socialShare =
@@ -573,13 +585,19 @@
       socialShare,
       dpeClass,
       dpeDate,
-      qpvContext
+      isInQpv
     });
 
     const qpvStatusHtml = `
-      <div class="qpv-status-panel ${qpvContext ? "in" : "out"}">
+      <div class="qpv-status-panel ${isInQpv === true ? "in" : isInQpv === false ? "out" : "unknown"}">
         <div class="label">Situation au regard de la politique de la ville</div>
-        <div class="value">${qpvContext ? `Dans le QPV : ${escapeHtml(qpvContext)}` : "Hors quartier prioritaire"}</div>
+        <div class="value">${
+          context.isInQpv === true
+            ? "Dans un quartier prioritaire"
+            : context.isInQpv === false
+              ? "Hors quartier prioritaire"
+              : "Information non disponible"
+        }</div>
       </div>`;
 
     $("#drawer-body").innerHTML =
@@ -590,10 +608,6 @@
         <div class="summary-card"><div class="n">Logements sociaux</div><div class="v">${escapeHtml(valueOrDash(socialHousing))}</div></div>
         <div class="summary-card"><div class="n">Part sociale</div><div class="v">${escapeHtml(valueOrDash(socialShare))}</div></div>
       </div>` +
-      `<div class="qpv-membership ${qpvContext ? "in" : "out"}">
-        ${qpvContext ? `Dans le QPV : ${escapeHtml(qpvContext)}` : "Hors quartier prioritaire"}
-      </div>` +
-      (qpvContext ? `<div class="context-banner"><div class="symbol">QPV</div><div class="text"><strong>${escapeHtml(qpvContext)}</strong>Le bâtiment est situé dans un quartier prioritaire de la politique de la ville 2024.</div></div>` : "") +
       renderIdentity(state.selectedFeature) +
       renderParcelSection() +
       renderDvfSection() +
@@ -678,9 +692,13 @@
         )}
         ${sourceCard(
           "QPV",
-          context.qpvContext ? "Oui" : "Non",
-          context.qpvContext || "Hors quartier prioritaire · géographie 2024",
-          Boolean(context.qpvContext)
+          context.isInQpv === true ? "Oui" : context.isInQpv === false ? "Non" : "—",
+          context.isInQpv === true
+            ? "Bâtiment indiqué dans un QPV par la BDNB / RPLS"
+            : context.isInQpv === false
+              ? "Bâtiment indiqué hors QPV par la BDNB / RPLS"
+              : "Information non disponible dans la réponse BDNB",
+          context.isInQpv === true
         )}
       </div>
     </section>`;
@@ -1339,126 +1357,9 @@
   }
 
 
-  async function loadQpvLayer() {
-    try {
-      const geojson = await getJSON(CFG.qpvGeojson);
-      const allFeatures = Array.isArray(geojson?.features) ? geojson.features : [];
-
-      const filtered = {
-        type: "FeatureCollection",
-        features: allFeatures.filter(feature => {
-          const p = feature.properties || {};
-          const values = [
-            p.code_qp, p.code_qpv, p.code, p.id_qpv,
-            p.departement, p.code_dept, p.code_dep,
-            p.commune_qp, p.commune
-          ].filter(Boolean).map(String);
-
-          return values.some(value =>
-            /^Q[INM]?95/i.test(value) ||
-            value.includes("Val-d'Oise") ||
-            value.includes("Val d'Oise") ||
-            /\b95\d{3}\b/.test(value)
-          );
-        })
-      };
-
-      setApiStatus(
-        "qpv",
-        filtered.features.length ? "ok" : "warn",
-        filtered.features.length ? `${filtered.features.length} QPV` : "Aucun périmètre"
-      );
-
-      if (!filtered.features.length) return;
-
-      state.qpvLayer = L.geoJSON(filtered, {
-        pane: "overlayPane",
-        style: {
-          color: "#6f4c9b",
-          weight: 2.4,
-          dashArray: "7 5",
-          fillColor: "#6f4c9b",
-          fillOpacity: .10,
-          interactive: true
-        },
-        onEachFeature(feature, layer) {
-          const p = feature.properties || {};
-          const name =
-            p.nom_qp || p.lib_qp || p.nom_qpv ||
-            p.libelle || p.nom || "Quartier prioritaire";
-          layer.bindTooltip(name, {
-            sticky: true,
-            className: "qpv-label"
-          });
-        }
-      }).addTo(map);
-
-      if (state.qpvLayer?.bringToBack) state.qpvLayer.bringToBack();
-
-      if (state.currentBdnb && state.selectedFeature) {
-        renderBdnb(state.currentBdnb, state.currentEnvelope || {});
-      }
-    } catch (error) {
-      console.warn("QPV non chargé", error);
-      setApiStatus("qpv", "ko", "Indisponible");
-    }
-  }
 
   function selectedQpvContext() {
-    if (!state.qpvLayer || !state.selectedFeature) return null;
-
-    let pointFeature = null;
-
-    try {
-      if (window.turf) {
-        pointFeature = state.selectedFeature.geometry?.type === "Point"
-          ? state.selectedFeature
-          : turf.pointOnFeature(state.selectedFeature);
-      }
-    } catch (error) {
-      console.warn("Point de référence QPV", error);
-    }
-
-    if (!pointFeature) {
-      const bounds = L.geoJSON(state.selectedFeature).getBounds();
-      if (!bounds.isValid()) return null;
-      const center = bounds.getCenter();
-      pointFeature = {
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: [center.lng, center.lat]
-        },
-        properties: {}
-      };
-    }
-
-    let found = null;
-
-    state.qpvLayer.eachLayer(layer => {
-      if (found || !layer.feature?.geometry) return;
-
-      let inside = false;
-      try {
-        inside = window.turf
-          ? turf.booleanPointInPolygon(pointFeature, layer.feature)
-          : layer.getBounds().contains([
-              pointFeature.geometry.coordinates[1],
-              pointFeature.geometry.coordinates[0]
-            ]);
-      } catch (error) {
-        console.warn("Test d'appartenance QPV", error);
-      }
-
-      if (inside) {
-        const p = layer.feature.properties || {};
-        found =
-          p.nom_qp || p.lib_qp || p.nom_qpv ||
-          p.libelle || p.nom || "Quartier prioritaire";
-      }
-    });
-
-    return found;
+    return null;
   }
 
   async function exportBuildingSheet() {
@@ -1502,7 +1403,6 @@
 
       const p = state.selectedFeature.properties || {};
       const address = Array.isArray(p.addresses) ? p.addresses[0] || {} : {};
-      const qpv = selectedQpvContext();
       const envelope = state.currentEnvelope || {};
       const data = state.currentBdnb;
       const rpls = data.rpls || {};
@@ -1662,7 +1562,8 @@
         ["Code postal", address.city_zipcode],
         ["Statut RNB", p.status],
         ["Parcelle(s)", parcelRefs.join(", ") || "Non renseignée"],
-        ["Situation QPV", qpv ? `Oui - ${qpv}` : "Non"],
+        ["Situation QPV", isInQpv === true ? "Oui" : isInQpv === false ? "Non" : "Non renseignée"],
+        ["Source QPV", "BDNB / RPLS 2024"],
         ["Millésime QPV", "2024"]
       ].filter(([, value]) => value !== null && value !== undefined && value !== "");
 
@@ -1736,7 +1637,7 @@
       addSection("Fichiers fonciers ouverts", cleanRows(data.ffo || {}), palette.neutral);
       addSection("Adresse BDNB", cleanRows(data.address || {}), palette.neutral);
 
-      const trace = `BDNB ${bdnbVintage} · RPLS 2024 · QPV 2024 · RNB API courante · Cadastre PCI Express via API Carto · DVF+ Cerema · Sitadel SDES lorsque des dossiers sont rapprochés. Fiche générée le ${generated}. Les données constituent une aide à l’analyse et doivent être vérifiées avant toute décision administrative individuelle.`;
+      const trace = `BDNB ${bdnbVintage} · RPLS 2024 · RNB API courante · Cadastre PCI Express via API Carto · DVF+ Cerema · Sitadel SDES lorsque des dossiers sont rapprochés. Fiche générée le ${generated}. Les données constituent une aide à l’analyse et doivent être vérifiées avant toute décision administrative individuelle.`;
       addSection("Millésimes et traçabilité", [["Sources et versions", trace]], palette.identity);
 
       const totalPages = doc.getNumberOfPages();
