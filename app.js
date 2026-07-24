@@ -6,7 +6,7 @@
     rnbBuilding: "https://rnb-api.beta.gouv.fr/api/alpha/buildings",
     rnbAddress: "https://rnb-api.beta.gouv.fr/api/alpha/buildings/address/",
     bdnbBase: "https://api.bdnb.io/v1/bdnb",
-    qpvGeojson: "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets/qp-politiquedelaville-shp/exports/geojson?lang=fr&timezone=Europe%2FParis",
+    qpvGeojson: "./qpv_95.geojson",
     cadastreApi: "https://apicarto.ign.fr/api/cadastre/parcelle",
     dvfApiBases: [
       "https://apidf.k8-dev.cerema.fr",
@@ -1328,64 +1328,50 @@
   async function loadQpvLayer() {
     try {
       const geojson = await getJSON(CFG.qpvGeojson);
-      const allFeatures = Array.isArray(geojson?.features) ? geojson.features : [];
+      const features = Array.isArray(geojson?.features) ? geojson.features : [];
 
-      const filtered = {
-        type: "FeatureCollection",
-        features: allFeatures.filter(feature => {
-          const p = feature.properties || {};
-          const values = [
-            p.code_qp, p.code_qpv, p.code, p.id_qpv,
-            p.departement, p.code_dept, p.code_dep,
-            p.commune_qp, p.commune
-          ].filter(Boolean).map(String);
+      if (!features.length) {
+        console.warn("Le fichier QPV local ne contient aucun périmètre.");
+        return;
+      }
 
-          return values.some(value =>
-            /^Q[INM]?95/i.test(value) ||
-            value.includes("Val-d'Oise") ||
-            value.includes("Val d'Oise") ||
-            /\b95\d{3}\b/.test(value)
-          );
-        })
-      };
-
-      setApiStatus(
-        "qpv",
-        filtered.features.length ? "ok" : "warn",
-        filtered.features.length ? `${filtered.features.length} QPV` : "Aucun périmètre"
-      );
-
-      if (!filtered.features.length) return;
-
-      state.qpvLayer = L.geoJSON(filtered, {
-        pane: "overlayPane",
-        style: {
-          color: "#6f4c9b",
-          weight: 2.4,
-          dashArray: "7 5",
-          fillColor: "#6f4c9b",
-          fillOpacity: .10,
-          interactive: true
+      state.qpvLayer = L.geoJSON(
+        {
+          type: "FeatureCollection",
+          features
         },
-        onEachFeature(feature, layer) {
-          const p = feature.properties || {};
-          const name =
-            p.nom_qp || p.lib_qp || p.nom_qpv ||
-            p.libelle || p.nom || "Quartier prioritaire";
-          layer.bindTooltip(name, {
-            sticky: true,
-            className: "qpv-label"
-          });
+        {
+          pane: "overlayPane",
+          style: {
+            color: "#c43b32",
+            weight: 2.2,
+            dashArray: "8 5",
+            fillColor: "#c43b32",
+            fillOpacity: 0.07,
+            interactive: true
+          },
+          onEachFeature(feature, layer) {
+            const properties = feature.properties || {};
+            const label =
+              properties.libelle ||
+              properties.nom ||
+              properties.identifian ||
+              "Quartier prioritaire";
+
+            layer.bindTooltip(label, {
+              sticky: true,
+              className: "qpv-label"
+            });
+          }
         }
-      });
+      ).addTo(map);
 
-
-      if (state.currentBdnb && state.selectedFeature) {
-        renderBdnb(state.currentBdnb, state.currentEnvelope || {});
+      // Les bâtiments restent au-dessus des périmètres QPV.
+      if (state.qpvLayer?.bringToBack) {
+        state.qpvLayer.bringToBack();
       }
     } catch (error) {
-      console.warn("QPV non chargé", error);
-      setApiStatus("qpv", "ko", "Indisponible");
+      console.warn("Fichier QPV local non chargé", error);
     }
   }
 

@@ -1,13 +1,14 @@
-# Observatoire du bâti — V22 sans QPV dans la page HTML
+# Observatoire du bâti — V22 avec QPV local
 
-Base utilisée : V22.
+Le périmètre QPV provient uniquement du fichier local fourni par la DDT95.
 
-Une seule modification fonctionnelle :
+- fichier source : QPV issu de QGIS ;
+- reprojection réalisée : EPSG:2154 vers WGS84 ;
+- fichier publié : `qpv_95.geojson` ;
+- 42 périmètres intégrés ;
+- aucune API QPV externe ;
+- aucune information Oui / Non affichée dans la fiche HTML ;
+- les périmètres sont seulement visibles sur la carte ;
+- le nom du QPV apparaît au survol.
 
-- suppression de toute information QPV dans la page HTML ;
-- suppression du voyant QPV ;
-- aucune couche QPV visible sur la carte ;
-- aucune mention QPV dans la synthèse ou la fiche détaillée.
-
-La logique BDNB, le cadastre, le DPE, le RPLS, DVF, Sitadel et l'export PDF
-n'ont pas été réécrits.
+Les autres fonctions de la V22 n'ont pas été réécrites.
