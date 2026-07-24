@@ -6,7 +6,7 @@
     rnbBuilding: "https://rnb-api.beta.gouv.fr/api/alpha/buildings",
     rnbAddress: "https://rnb-api.beta.gouv.fr/api/alpha/buildings/address/",
     bdnbBase: "https://api.bdnb.io/v1/bdnb",
-    dataGouvDatasetApi: "https://www.data.gouv.fr/api/1/datasets/quartiers-prioritaires-de-la-politique-de-la-ville/",
+    qpvGeojson: "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets/qp-politiquedelaville-shp/exports/geojson?lang=fr&timezone=Europe%2FParis",
     cadastreApi: "https://apicarto.ign.fr/api/cadastre/parcelle",
     dvfApiBases: [
       "https://apidf.k8-dev.cerema.fr",
@@ -60,11 +60,6 @@
   parcelLegend.innerHTML = '<span class="map-parcel-swatch"></span> Parcelle(s) du bâtiment';
   parcelLegend.style.display = "none";
   document.querySelector(".map-card").appendChild(parcelLegend);
-
-  const qpvLegend = document.createElement("div");
-  qpvLegend.className = "qpv-legend";
-  qpvLegend.innerHTML = '<span class="qpv-swatch"></span> Quartiers prioritaires 2024';
-  document.querySelector(".map-card").appendChild(qpvLegend);
 
   const InfoControl = L.Control.extend({
     options: { position: "bottomleft" },
@@ -1346,31 +1341,25 @@
 
   async function loadQpvLayer() {
     try {
-      const metadata = await getJSON(CFG.dataGouvDatasetApi);
-      const resources = metadata?.resources || [];
-      const geoResource = resources.find(resource =>
-        /geojson/i.test(resource.format || "") ||
-        /\.geojson($|\?)/i.test(resource.url || "")
-      );
-      if (!geoResource?.url) {
-        setApiStatus("qpv", "warn", "Aucune couche");
-        return;
-      }
+      const geojson = await getJSON(CFG.qpvGeojson);
+      const allFeatures = Array.isArray(geojson?.features) ? geojson.features : [];
 
-      const geojson = await getJSON(geoResource.url);
       const filtered = {
         type: "FeatureCollection",
-        features: (geojson.features || []).filter(feature => {
+        features: allFeatures.filter(feature => {
           const p = feature.properties || {};
-          const dept = String(
-            p.code_dept ||
-            p.departement ||
-            p.dep ||
-            p.code_qp ||
-            p.id_qpv ||
-            ""
+          const values = [
+            p.code_qp, p.code_qpv, p.code, p.id_qpv,
+            p.departement, p.code_dept, p.code_dep,
+            p.commune_qp, p.commune
+          ].filter(Boolean).map(String);
+
+          return values.some(value =>
+            /^Q[INM]?95/i.test(value) ||
+            value.includes("Val-d'Oise") ||
+            value.includes("Val d'Oise") ||
+            /\b95\d{3}\b/.test(value)
           );
-          return dept.includes("95");
         })
       };
 
@@ -1379,6 +1368,9 @@
         filtered.features.length ? "ok" : "warn",
         filtered.features.length ? `${filtered.features.length} QPV` : "Aucun périmètre"
       );
+
+      if (!filtered.features.length) return;
+
       state.qpvLayer = L.geoJSON(filtered, {
         pane: "overlayPane",
         style: {
@@ -1386,19 +1378,26 @@
           weight: 2.4,
           dashArray: "7 5",
           fillColor: "#6f4c9b",
-          fillOpacity: .11,
+          fillOpacity: .10,
           interactive: true
         },
         onEachFeature(feature, layer) {
           const p = feature.properties || {};
-          const name = p.lib_qp || p.nom_qp || p.libelle || p.nom || "Quartier prioritaire";
+          const name =
+            p.nom_qp || p.lib_qp || p.nom_qpv ||
+            p.libelle || p.nom || "Quartier prioritaire";
           layer.bindTooltip(name, {
             sticky: true,
             className: "qpv-label"
           });
         }
       }).addTo(map);
+
       if (state.qpvLayer?.bringToBack) state.qpvLayer.bringToBack();
+
+      if (state.currentBdnb && state.selectedFeature) {
+        renderBdnb(state.currentBdnb, state.currentEnvelope || {});
+      }
     } catch (error) {
       console.warn("QPV non chargé", error);
       setApiStatus("qpv", "ko", "Indisponible");
@@ -1407,17 +1406,58 @@
 
   function selectedQpvContext() {
     if (!state.qpvLayer || !state.selectedFeature) return null;
-    const selectedLayer = L.geoJSON(state.selectedFeature);
-    const center = selectedLayer.getBounds().getCenter();
+
+    let pointFeature = null;
+
+    try {
+      if (window.turf) {
+        pointFeature = state.selectedFeature.geometry?.type === "Point"
+          ? state.selectedFeature
+          : turf.pointOnFeature(state.selectedFeature);
+      }
+    } catch (error) {
+      console.warn("Point de référence QPV", error);
+    }
+
+    if (!pointFeature) {
+      const bounds = L.geoJSON(state.selectedFeature).getBounds();
+      if (!bounds.isValid()) return null;
+      const center = bounds.getCenter();
+      pointFeature = {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [center.lng, center.lat]
+        },
+        properties: {}
+      };
+    }
+
     let found = null;
 
     state.qpvLayer.eachLayer(layer => {
-      if (found || !layer.getBounds) return;
-      if (layer.getBounds().contains(center)) {
-        const p = layer.feature?.properties || {};
-        found = p.lib_qp || p.nom_qp || p.libelle || p.nom || "Quartier prioritaire";
+      if (found || !layer.feature?.geometry) return;
+
+      let inside = false;
+      try {
+        inside = window.turf
+          ? turf.booleanPointInPolygon(pointFeature, layer.feature)
+          : layer.getBounds().contains([
+              pointFeature.geometry.coordinates[1],
+              pointFeature.geometry.coordinates[0]
+            ]);
+      } catch (error) {
+        console.warn("Test d'appartenance QPV", error);
+      }
+
+      if (inside) {
+        const p = layer.feature.properties || {};
+        found =
+          p.nom_qp || p.lib_qp || p.nom_qpv ||
+          p.libelle || p.nom || "Quartier prioritaire";
       }
     });
+
     return found;
   }
 

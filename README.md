@@ -71,3 +71,12 @@ Pour remplacer la version publiée :
 - messages destinés aux utilisateurs métier, sans erreur JavaScript affichée ;
 - accès à l’interface sécurisés lorsqu’un élément HTML est absent ;
 - voyant QPV sorti de l’état « En attente » lorsqu’aucune couche n’est disponible.
+
+
+## V22 — QPV fiabilisés
+
+- suppression de la pastille QPV en bas de la carte ;
+- utilisation de la couche francilienne officielle des QPV 2024 ;
+- filtrage sur le Val-d’Oise ;
+- calcul réel d’appartenance par point dans polygone avec Turf.js ;
+- actualisation de la fiche après le chargement de la couche.
