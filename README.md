@@ -1,26 +1,18 @@
-# Observatoire du bâti du Val-d’Oise — V27 corrigée
+# Observatoire du bâti — V28
 
-## Correction BDNB
+Correctif construit à partir du journal Réseau du navigateur.
 
-La relation BDNB correcte est :
+## Constats observés
 
-1. `rel_batiment_construction_rnb` : ID-RNB → `batiment_construction_id`
-2. `batiment_construction` : `batiment_construction_id` → `batiment_groupe_id`
-3. `batiment_groupe_complet` : chargement de la fiche complète
+- `rel_batiment_construction_rnb` répondait 404 ;
+- `batiment_construction?rnb_id=...` répondait 200 ;
+- `batiment_groupe_complet?batiment_groupe_id=...` répondait 200.
 
-La version précédente cherchait à tort `batiment_groupe_id` dans la première table.
+## Corrections
 
-## Correction PDF
-
-La valeur `isInQpv` est maintenant recalculée dans la fonction d’export à partir
-de `dans_qpv` fourni par la BDNB / RPLS. L’erreur JavaScript n’existe plus.
-
-## Déploiement GitHub Pages
-
-Remplacer :
-
-- `index.html`
-- `app.js`
-- `styles.css`
-
-Puis valider le commit et effectuer `Ctrl + F5`.
+- suppression complète de la route en erreur 404 ;
+- rapprochement direct via `batiment_construction?rnb_id=...` ;
+- lecture des réponses BDNB sous forme de tableau ou d’objet JSON ;
+- nouveau namespace de cache pour ignorer les anciennes réponses ;
+- maintien du correctif PDF QPV ;
+- syntaxe JavaScript validée avec Node.

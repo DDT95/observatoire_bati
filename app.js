@@ -187,7 +187,7 @@
   }
 
   function bdnbCacheKey(rnbId) {
-    return `observatoire-bati:bdnb-complet:${rnbId}`;
+    return `observatoire-bati:bdnb-v28:${rnbId}`;
   }
 
   function readBdnbCache(rnbId) {
@@ -328,38 +328,11 @@
     }
 
     const promise = (async () => {
-      // Appel 1 : ID-RNB -> identifiant bâtiment construction.
-      const relationParams = new URLSearchParams({
-        "rnb_id": `eq.${rnbId}`,
-        "select": "rnb_id,batiment_construction_id,type_appariement",
-        "limit": "20"
-      });
-
-      const relationResponse = await getJSON(
-        `${CFG.bdnbBase}/donnees/rel_batiment_construction_rnb?${relationParams}`,
-        { retries: 3, retryDelay: 1100 }
-      );
-
-      const relationRows = rowsOf(relationResponse);
-      const constructionIds = [...new Set(
-        relationRows
-          .map(row => row?.batiment_construction_id)
-          .filter(Boolean)
-      )];
-
-      if (!constructionIds.length) {
-        throw new Error("Aucune correspondance BDNB trouvée pour cet ID-RNB.");
-      }
-
-      // Appel 2 : bâtiment construction -> groupe de bâtiments.
-      // Une entrée RNB peut exceptionnellement être liée à plusieurs constructions.
-      const constructionFilter = constructionIds.length === 1
-        ? `eq.${constructionIds[0]}`
-        : `in.(${constructionIds.join(",")})`;
-
+      // Appel 1 : la table batiment_construction accepte directement le filtre rnb_id.
+      // Cette route est celle qui répond HTTP 200 dans le navigateur.
       const constructionParams = new URLSearchParams({
-        "batiment_construction_id": constructionFilter,
-        "select": "batiment_construction_id,batiment_groupe_id",
+        "rnb_id": `eq.${rnbId}`,
+        "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
         "limit": "50"
       });
 
@@ -369,6 +342,11 @@
       );
 
       const constructionRows = rowsOf(constructionResponse);
+      const constructionIds = [...new Set(
+        constructionRows
+          .map(row => row?.batiment_construction_id)
+          .filter(Boolean)
+      )];
       const groupIds = [...new Set(
         constructionRows
           .map(row => row?.batiment_groupe_id)
@@ -377,15 +355,13 @@
 
       if (!groupIds.length) {
         throw new Error(
-          "Le bâtiment RNB est connu de la BDNB, mais aucun groupe de bâtiments n’a été retrouvé."
+          "La BDNB connaît le bâtiment, mais aucun groupe de bâtiments n’a été retourné."
         );
       }
 
-      // La majorité des associations sont 1 RNB = 1 groupe.
-      // En cas de relation complexe, on prend le premier groupe exposé par la BDNB.
       const groupId = groupIds[0];
 
-      // Appel 3 : fiche complète agrégée.
+      // Appel 2 : fiche complète agrégée.
       const completeParams = new URLSearchParams({
         "batiment_groupe_id": `eq.${groupId}`,
         "limit": "1"
@@ -396,12 +372,16 @@
         { retries: 3, retryDelay: 1300 }
       );
 
+      // Selon la route et la version de l’API, la réponse peut être :
+      // - un tableau contenant une fiche ;
+      // - un objet fiche directement ;
+      // - un objet avec data/results.
       const completeRows = rowsOf(completeResponse);
       const record = completeRows[0] || null;
 
       if (!record) {
         throw new Error(
-          "La BDNB a identifié le bâtiment mais n’a renvoyé aucune fiche complète."
+          "La fiche complète BDNB a répondu, mais son format n’a pas pu être lu."
         );
       }
 
@@ -492,6 +472,17 @@
     if (Array.isArray(value)) return value;
     if (Array.isArray(value?.data)) return value.data;
     if (Array.isArray(value?.results)) return value.results;
+    if (value?.data && typeof value.data === "object") return [value.data];
+    if (value?.result && typeof value.result === "object") return [value.result];
+    if (
+      value &&
+      typeof value === "object" &&
+      !value.detail &&
+      !value.error &&
+      !value.raw
+    ) {
+      return [value];
+    }
     return [];
   }
 
