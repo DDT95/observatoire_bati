@@ -1,18 +1,82 @@
-# Observatoire du bâti — V28
+# Observatoire du bâti du Val-d’Oise — GitHub Pages
 
-Correctif construit à partir du journal Réseau du navigateur.
+Version statique compatible GitHub Pages.
 
-## Constats observés
+## Fichiers à déposer à la racine du dépôt
 
-- `rel_batiment_construction_rnb` répondait 404 ;
-- `batiment_construction?rnb_id=...` répondait 200 ;
-- `batiment_groupe_complet?batiment_groupe_id=...` répondait 200.
+- `index.html`
+- `app.js`
+- `styles.css`
+- `.nojekyll`
+- `404.html`
 
-## Corrections
+Le dossier peut aussi contenir ce `README.md`.
 
-- suppression complète de la route en erreur 404 ;
-- rapprochement direct via `batiment_construction?rnb_id=...` ;
-- lecture des réponses BDNB sous forme de tableau ou d’objet JSON ;
-- nouveau namespace de cache pour ignorer les anciennes réponses ;
-- maintien du correctif PDF QPV ;
-- syntaxe JavaScript validée avec Node.
+## Publication
+
+Dans GitHub :
+
+1. Ouvrir **Settings**
+2. Ouvrir **Pages**
+3. Dans **Build and deployment**, choisir **Deploy from a branch**
+4. Sélectionner la branche `main`
+5. Sélectionner le dossier `/ (root)`
+6. Enregistrer
+
+L’adresse sera de la forme :
+
+```text
+https://ddt95.github.io/observatoire_bati/
+```
+
+## Important
+
+GitHub Pages ne prend pas en charge PHP. Cette version utilise donc directement,
+depuis le navigateur :
+
+- API RNB
+- API BDNB
+- API Carto Cadastre IGN
+- DVF+ Cerema
+- Sitadel / DiDo
+- QPV / ANCT
+
+Si un service bloque les appels CORS depuis GitHub Pages, son voyant apparaîtra en rouge
+ou en connexion partielle. Le reste de l’observatoire continuera de fonctionner.
+
+## Mise à jour
+
+Pour remplacer la version publiée :
+
+1. supprimer ou écraser les anciens fichiers ;
+2. envoyer les nouveaux fichiers ;
+3. valider avec **Commit changes** ;
+4. attendre généralement une à deux minutes.
+
+
+## Version V20
+
+- suppression des quatre gros indicateurs au-dessus de la carte ;
+- carte agrandie et prioritaire ;
+- QPV 2024 renforcés visuellement ;
+- légende QPV plus claire ;
+- statut QPV visible immédiatement en haut de la fiche bâtiment ;
+- maintien du détail QPV dans la synthèse et dans le PDF.
+
+
+## Correctif V21
+
+- correction du faux message « BDNB indisponible » provoqué par les anciens KPI supprimés ;
+- suppression du bloc « Diagnostic technique » ;
+- messages destinés aux utilisateurs métier, sans erreur JavaScript affichée ;
+- accès à l’interface sécurisés lorsqu’un élément HTML est absent ;
+- voyant QPV sorti de l’état « En attente » lorsqu’aucune couche n’est disponible.
+
+
+## V22 — QPV fiabilisés
+
+- suppression de la pastille QPV en bas de la carte ;
+- utilisation de la couche francilienne officielle des QPV 2024 ;
+- filtrage sur le Val-d’Oise ;
+- calcul réel d’appartenance par point dans polygone avec Turf.js ;
+- actualisation de la fiche après le chargement de la couche.

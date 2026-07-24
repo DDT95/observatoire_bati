@@ -6,6 +6,7 @@
     rnbBuilding: "https://rnb-api.beta.gouv.fr/api/alpha/buildings",
     rnbAddress: "https://rnb-api.beta.gouv.fr/api/alpha/buildings/address/",
     bdnbBase: "https://api.bdnb.io/v1/bdnb",
+    qpvGeojson: "https://data.iledefrance.fr/api/explore/v2.1/catalog/datasets/qp-politiquedelaville-shp/exports/geojson?lang=fr&timezone=Europe%2FParis",
     cadastreApi: "https://apicarto.ign.fr/api/cadastre/parcelle",
     dvfApiBases: [
       "https://apidf.k8-dev.cerema.fr",
@@ -23,10 +24,9 @@
     selectedFeature: null,
     metadata: null,
     loadTimer: null,
+    qpvLayer: null,
     currentBdnb: null,
     currentEnvelope: null,
-    bdnbInflight: new Map(),
-    bdnbCacheMinutes: 60,
     parcels: [],
     parcelLayer: null,
     dvf: [],
@@ -39,6 +39,7 @@
       cadastre: { state: "pending", label: "En attente" },
       dvf: { state: "pending", label: "En attente" },
       sitadel: { state: "pending", label: "En attente" },
+      qpv: { state: "pending", label: "En attente" }
     }
   };
 
@@ -78,6 +79,8 @@
     }
   });
   map.addControl(new InfoControl());
+
+  loadQpvLayer();
 
   map.on("tileerror", () => {
     live("ko", "Fond de carte inaccessible", "le réseau bloque OpenStreetMap");
@@ -137,79 +140,27 @@
     $("#progress-bar").style.width = `${Math.max(0, Math.min(100, value))}%`;
   }
 
-  function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  async function getJSON(url, options = {}) {
-    const { retries = 0, retryDelay = 900 } = options;
-    let lastError = null;
-
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      let response;
-      try {
-        response = await fetch(url, {
-          cache: "no-store",
-          mode: "cors",
-          headers: { "Accept": "application/json" }
-        });
-      } catch (error) {
-        lastError = new Error(`Connexion impossible : ${error.message}`);
-        if (attempt < retries) {
-          await sleep(retryDelay * (attempt + 1));
-          continue;
-        }
-        throw lastError;
-      }
-
-      const text = await response.text();
-      let data = null;
-      try { data = text ? JSON.parse(text) : null; }
-      catch { data = { raw: text }; }
-
-      if (response.ok) return data;
-
-      const error = new Error(data?.detail || data?.error || `HTTP ${response.status}`);
-      error.status = response.status;
-      lastError = error;
-
-      if ([429, 500, 502, 503, 504].includes(response.status) && attempt < retries) {
-        const retryAfter = Number(response.headers.get("Retry-After"));
-        const wait = Number.isFinite(retryAfter) && retryAfter > 0
-          ? retryAfter * 1000
-          : retryDelay * Math.pow(2, attempt);
-        await sleep(wait);
-        continue;
-      }
-      throw error;
-    }
-    throw lastError || new Error("API indisponible");
-  }
-
-  function bdnbCacheKey(rnbId) {
-    return `observatoire-bati:bdnb-v28:${rnbId}`;
-  }
-
-  function readBdnbCache(rnbId) {
+  async function getJSON(url) {
+    let response;
     try {
-      const raw = localStorage.getItem(bdnbCacheKey(rnbId));
-      if (!raw) return null;
-      const cached = JSON.parse(raw);
-      const maxAge = state.bdnbCacheMinutes * 60 * 1000;
-      if (!cached?.savedAt || Date.now() - cached.savedAt > maxAge) return null;
-      return cached.value || null;
-    } catch { return null; }
-  }
-
-  function writeBdnbCache(rnbId, value) {
-    try {
-      localStorage.setItem(bdnbCacheKey(rnbId), JSON.stringify({
-        savedAt: Date.now(),
-        value
-      }));
+      response = await fetch(url, {
+        cache: "no-store",
+        mode: "cors",
+        headers: { "Accept": "application/json" }
+      });
     } catch (error) {
-      console.warn("Cache BDNB", error);
+      throw new Error(
+        `Connexion bloquée par le navigateur ou le réseau : ${error.message}`
+      );
     }
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+    if (!response.ok) {
+      const detail = data?.detail || data?.error || `HTTP ${response.status}`;
+      throw new Error(detail);
+    }
+    return data;
   }
 
   async function loadMetadata() {
@@ -320,169 +271,99 @@
   }
 
   async function fetchBdnbByRnb(rnbId) {
-    const cached = readBdnbCache(rnbId);
-    if (cached) return { ...cached, cache: true };
-
-    if (state.bdnbInflight.has(rnbId)) {
-      return state.bdnbInflight.get(rnbId);
-    }
-
-    const promise = (async () => {
-      // Appel 1 : la table batiment_construction accepte directement le filtre rnb_id.
-      // Cette route est celle qui répond HTTP 200 dans le navigateur.
-      const constructionParams = new URLSearchParams({
-        "rnb_id": `eq.${rnbId}`,
-        "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
-        "limit": "50"
-      });
-
-      const constructionResponse = await getJSON(
-        `${CFG.bdnbBase}/donnees/batiment_construction?${constructionParams}`,
-        { retries: 3, retryDelay: 1100 }
-      );
-
-      const constructionRows = rowsOf(constructionResponse);
-      const constructionIds = [...new Set(
-        constructionRows
-          .map(row => row?.batiment_construction_id)
-          .filter(Boolean)
-      )];
-      const groupIds = [...new Set(
-        constructionRows
-          .map(row => row?.batiment_groupe_id)
-          .filter(Boolean)
-      )];
-
-      if (!groupIds.length) {
-        throw new Error(
-          "La BDNB connaît le bâtiment, mais aucun groupe de bâtiments n’a été retourné."
-        );
-      }
-
-      const groupId = groupIds[0];
-
-      // Appel 2 : fiche complète agrégée.
-      const completeParams = new URLSearchParams({
-        "batiment_groupe_id": `eq.${groupId}`,
-        "limit": "1"
-      });
-
-      const completeResponse = await getJSON(
-        `${CFG.bdnbBase}/donnees/batiment_groupe_complet?${completeParams}`,
-        { retries: 3, retryDelay: 1300 }
-      );
-
-      // Selon la route et la version de l’API, la réponse peut être :
-      // - un tableau contenant une fiche ;
-      // - un objet fiche directement ;
-      // - un objet avec data/results.
-      const completeRows = rowsOf(completeResponse);
-      const record = completeRows[0] || null;
-
-      if (!record) {
-        throw new Error(
-          "La fiche complète BDNB a répondu, mais son format n’a pas pu être lu."
-        );
-      }
-
-      const data = splitCompleteBdnbRecord(record);
-      const result = {
-        rnb_id: rnbId,
-        batiment_construction_ids: constructionIds,
-        batiment_groupe_id: groupId,
-        batiment_groupe_ids: groupIds,
-        millesime: "2026-02.a",
-        data,
-        complete_record: record,
-        partial: groupIds.length > 1
-      };
-
-      writeBdnbCache(rnbId, result);
-      return result;
-    })();
-
-    state.bdnbInflight.set(rnbId, promise);
-
-    try {
-      return await promise;
-    } finally {
-      state.bdnbInflight.delete(rnbId);
-    }
-  }
-
-  function splitCompleteBdnbRecord(record) {
-    const sections = {
-      building: {}, address: {}, usage: {}, rpls: {}, dpe: {}, rnc: {},
-      risks: {}, bdtopo: {}, renovation: {}, ffo: {}
-    };
-
-    const rules = [
-      ["rpls", /(rpls|nb_log_loue|nb_log_vac|loyer_moyen|accessible_pmr|dans_qpv|classe_ener_principale|classe_ges_principale|raison_sociale_principal|siret_principal)/i],
-      ["dpe", /(dpe|classe_bilan|classe_emission|conso_5_usages|conso_3_usages|deperdition|type_energie_chauffage|type_installation_chauffage|type_ventilation|type_vitrage|isolation|surface_habitable)/i],
-      ["rnc", /(rnc|copro|syndic|numero_immat|nb_lot)/i],
-      ["risks", /(risque|argile|radon|sismique|incendie|inondation|submersion)/i],
-      ["renovation", /(renov|opportunite|contrainte|geother|solaire|pac|favorabilite)/i],
-      ["bdtopo", /(bdtopo|hauteur|max_hauteur|l_nature|l_usage)/i],
-      ["usage", /(usage|propriete|proprietaire|categorie_usage)/i],
-      ["address", /(adresse|ban_|code_postal|numero_voie|nom_voie)/i],
-      ["ffo", /(^nb_log$|annee_construction|fichier_foncier|ffo|surface_fiscale|local)/i]
-    ];
-
-    for (const [key, value] of Object.entries(record || {})) {
-      let assigned = false;
-      for (const [section, regex] of rules) {
-        if (regex.test(key)) {
-          sections[section][key] = value;
-          assigned = true;
-          break;
+    const relationCandidates = [
+      {
+        table: "rel_batiment_construction_rnb",
+        params: {
+          "rnb_id": `eq.${rnbId}`,
+          "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
+          "limit": "20"
+        }
+      },
+      {
+        table: "batiment_construction",
+        params: {
+          "rnb_id": `eq.${rnbId}`,
+          "select": "rnb_id,batiment_construction_id,batiment_groupe_id",
+          "limit": "20"
         }
       }
-      if (!assigned) sections.building[key] = value;
-    }
+    ];
 
-    // Alias attendus par l'interface.
-    aliasFirst(sections.rpls, "nb_log", ["nb_log_rpls", "rpls_nb_log", "nombre_logements_rpls"]);
-    aliasFirst(sections.rpls, "nb_log_loue", ["rpls_nb_log_loue", "nombre_logements_loues_rpls"]);
-    aliasFirst(sections.rpls, "nb_log_vac", ["rpls_nb_log_vac", "nombre_logements_vacants_rpls"]);
-    aliasFirst(sections.rpls, "dans_qpv", ["rpls_dans_qpv", "dans_qp"]);
-    aliasFirst(sections.dpe, "classe_bilan_dpe", ["classe_bilan_dpe", "dpe_classe_bilan", "classe_dpe", "etiquette_dpe"]);
-    aliasFirst(sections.dpe, "classe_emission_ges", ["classe_emission_ges", "dpe_classe_ges", "classe_ges", "etiquette_ges"]);
-    aliasFirst(sections.dpe, "date_etablissement_dpe", ["date_etablissement_dpe", "dpe_date_etablissement", "date_dpe"]);
-    aliasFirst(sections.ffo, "nb_log", ["nb_log", "nombre_logements"]);
+    let relationRows = [];
+    let lastError = null;
 
-    return sections;
-  }
-
-  function aliasFirst(target, canonical, candidates) {
-    if (target[canonical] !== undefined && target[canonical] !== null && target[canonical] !== "") return;
-    const entries = Object.entries(target);
-    for (const candidate of candidates) {
-      const exact = entries.find(([key, value]) =>
-        normalizeKeyName(key) === normalizeKeyName(candidate) &&
-        value !== null && value !== undefined && value !== ""
-      );
-      if (exact) {
-        target[canonical] = exact[1];
-        return;
+    for (const candidate of relationCandidates) {
+      try {
+        const params = new URLSearchParams(candidate.params);
+        const response = await getJSON(
+          `${CFG.bdnbBase}/donnees/${candidate.table}?${params}`
+        );
+        relationRows = rowsOf(response);
+        if (relationRows.length) break;
+      } catch (error) {
+        lastError = error;
       }
     }
+
+    const groupId = relationRows.find(row => row?.batiment_groupe_id)?.batiment_groupe_id;
+
+    if (!groupId) {
+      throw new Error(
+        lastError?.message ||
+        "Aucune correspondance BDNB trouvée pour cet ID-RNB."
+      );
+    }
+
+    const tableNames = {
+      building: "batiment_groupe",
+      address: "batiment_groupe_adresse",
+      usage: "batiment_groupe_synthese_propriete_usage",
+      rpls: "batiment_groupe_rpls",
+      dpe: "batiment_groupe_dpe_representatif_logement",
+      rnc: "batiment_groupe_rnc",
+      risks: "batiment_groupe_risques",
+      bdtopo: "batiment_groupe_bdtopo_bat",
+      renovation: "batiment_groupe_contrainte_opportunite_renovation",
+      ffo: "batiment_groupe_ffo_bat"
+    };
+
+    const results = await Promise.allSettled(
+      Object.entries(tableNames).map(async ([key, table]) => {
+        const params = new URLSearchParams({
+          "batiment_groupe_id": `eq.${groupId}`,
+          "limit": "1"
+        });
+        const response = await getJSON(`${CFG.bdnbBase}/donnees/${table}?${params}`);
+        return [key, rowsOf(response)[0] || null];
+      })
+    );
+
+    const data = {};
+    const unavailable = [];
+
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        const [key, value] = result.value;
+        data[key] = value;
+      } else {
+        unavailable.push(result.reason?.message || "source indisponible");
+      }
+    }
+
+    return {
+      rnb_id: rnbId,
+      batiment_groupe_id: groupId,
+      millesime: "2026-02.a",
+      data,
+      unavailable
+    };
   }
 
   function rowsOf(value) {
     if (Array.isArray(value)) return value;
     if (Array.isArray(value?.data)) return value.data;
     if (Array.isArray(value?.results)) return value.results;
-    if (value?.data && typeof value.data === "object") return [value.data];
-    if (value?.result && typeof value.result === "object") return [value.result];
-    if (
-      value &&
-      typeof value === "object" &&
-      !value.detail &&
-      !value.error &&
-      !value.raw
-    ) {
-      return [value];
-    }
     return [];
   }
 
@@ -492,27 +373,20 @@
 
     try {
       const result = await fetchBdnbByRnb(rnbId);
-      setApiStatus("bdnb", "ok", result?.cache ? "Cache local" : "Connecté");
+      setApiStatus("bdnb", "ok", "Connecté");
       const record = result?.data || result?.record || result;
       renderBdnb(record, result);
-      live("ok", "Fiche bâtiment actualisée", result?.cache ? "cache BDNB" : "API BDNB");
+      live("ok", "Fiche bâtiment actualisée", "API BDNB");
       progress(100);
       setTimeout(() => progress(0), 450);
     } catch (error) {
       console.error(error);
-      setApiStatus(
-        "bdnb",
-        error?.status === 429 ? "warn" : "ko",
-        error?.status === 429 ? "API très sollicitée" : "Indisponible"
-      );
+      setApiStatus("bdnb", "ko", "Indisponible");
       setTextSafe("#summary-status", "Données complémentaires indisponibles");
-      $("#btn-export").disabled = true;
       $("#summary-date").textContent = new Date().toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
       setTextSafe(
         "#summary-text",
-        error?.status === 429
-          ? "La BDNB est momentanément très sollicitée. La fiche sera réessayée automatiquement au prochain clic."
-          : "Les données complémentaires ne sont pas accessibles pour le moment. L’identité RNB et les informations cadastrales restent disponibles."
+        "Les données complémentaires ne sont pas accessibles pour le moment. L’identité RNB et les informations cadastrales restent disponibles."
       );
       const drawerBody = document.querySelector("#drawer-body");
       if (drawerBody) {
@@ -533,15 +407,6 @@
     }
   }
 
-  function normalizeBoolean(value) {
-    if (value === true) return true;
-    if (value === false) return false;
-    const text = String(value ?? "").trim().toLowerCase();
-    if (["oui", "yes", "true", "1", "o"].includes(text)) return true;
-    if (["non", "no", "false", "0", "n"].includes(text)) return false;
-    return null;
-  }
-
   function renderBdnb(data, envelope) {
     state.currentBdnb = data;
     state.currentEnvelope = envelope;
@@ -549,16 +414,6 @@
     const dpe = data?.dpe || {};
     const rpls = data?.rpls || {};
     const usage = data?.usage || {};
-
-    const qpvRaw =
-      rpls.dans_qpv ??
-      rpls.dans_qp ??
-      rpls.qpv ??
-      data?.building?.dans_qpv ??
-      data?.ffo?.dans_qpv ??
-      null;
-
-    const isInQpv = normalizeBoolean(qpvRaw);
     const rnc = data?.rnc || {};
     const risks = data?.risks || {};
     const bdtopo = data?.bdtopo || {};
@@ -703,6 +558,8 @@
       )
       .slice(0, 8)
       .map(([key, value]) => [humanizeKey(key), value]);
+
+    const qpvContext = selectedQpvContext();
     const totalHousing = ffo.nb_log ?? building.nb_log ?? null;
     const socialHousing = rpls.nb_log ?? null;
     const socialShare =
@@ -716,19 +573,13 @@
       socialShare,
       dpeClass,
       dpeDate,
-      isInQpv
+      qpvContext
     });
 
     const qpvStatusHtml = `
-      <div class="qpv-status-panel ${isInQpv === true ? "in" : isInQpv === false ? "out" : "unknown"}">
+      <div class="qpv-status-panel ${qpvContext ? "in" : "out"}">
         <div class="label">Situation au regard de la politique de la ville</div>
-        <div class="value">${
-          context.isInQpv === true
-            ? "Dans un quartier prioritaire"
-            : context.isInQpv === false
-              ? "Hors quartier prioritaire"
-              : "Information non disponible"
-        }</div>
+        <div class="value">${qpvContext ? `Dans le QPV : ${escapeHtml(qpvContext)}` : "Hors quartier prioritaire"}</div>
       </div>`;
 
     $("#drawer-body").innerHTML =
@@ -739,6 +590,10 @@
         <div class="summary-card"><div class="n">Logements sociaux</div><div class="v">${escapeHtml(valueOrDash(socialHousing))}</div></div>
         <div class="summary-card"><div class="n">Part sociale</div><div class="v">${escapeHtml(valueOrDash(socialShare))}</div></div>
       </div>` +
+      `<div class="qpv-membership ${qpvContext ? "in" : "out"}">
+        ${qpvContext ? `Dans le QPV : ${escapeHtml(qpvContext)}` : "Hors quartier prioritaire"}
+      </div>` +
+      (qpvContext ? `<div class="context-banner"><div class="symbol">QPV</div><div class="text"><strong>${escapeHtml(qpvContext)}</strong>Le bâtiment est situé dans un quartier prioritaire de la politique de la ville 2024.</div></div>` : "") +
       renderIdentity(state.selectedFeature) +
       renderParcelSection() +
       renderDvfSection() +
@@ -823,13 +678,9 @@
         )}
         ${sourceCard(
           "QPV",
-          context.isInQpv === true ? "Oui" : context.isInQpv === false ? "Non" : "—",
-          context.isInQpv === true
-            ? "Bâtiment indiqué dans un QPV par la BDNB / RPLS"
-            : context.isInQpv === false
-              ? "Bâtiment indiqué hors QPV par la BDNB / RPLS"
-              : "Information non disponible dans la réponse BDNB",
-          context.isInQpv === true
+          context.qpvContext ? "Oui" : "Non",
+          context.qpvContext || "Hors quartier prioritaire · géographie 2024",
+          Boolean(context.qpvContext)
         )}
       </div>
     </section>`;
@@ -1488,9 +1339,126 @@
   }
 
 
+  async function loadQpvLayer() {
+    try {
+      const geojson = await getJSON(CFG.qpvGeojson);
+      const allFeatures = Array.isArray(geojson?.features) ? geojson.features : [];
+
+      const filtered = {
+        type: "FeatureCollection",
+        features: allFeatures.filter(feature => {
+          const p = feature.properties || {};
+          const values = [
+            p.code_qp, p.code_qpv, p.code, p.id_qpv,
+            p.departement, p.code_dept, p.code_dep,
+            p.commune_qp, p.commune
+          ].filter(Boolean).map(String);
+
+          return values.some(value =>
+            /^Q[INM]?95/i.test(value) ||
+            value.includes("Val-d'Oise") ||
+            value.includes("Val d'Oise") ||
+            /\b95\d{3}\b/.test(value)
+          );
+        })
+      };
+
+      setApiStatus(
+        "qpv",
+        filtered.features.length ? "ok" : "warn",
+        filtered.features.length ? `${filtered.features.length} QPV` : "Aucun périmètre"
+      );
+
+      if (!filtered.features.length) return;
+
+      state.qpvLayer = L.geoJSON(filtered, {
+        pane: "overlayPane",
+        style: {
+          color: "#6f4c9b",
+          weight: 2.4,
+          dashArray: "7 5",
+          fillColor: "#6f4c9b",
+          fillOpacity: .10,
+          interactive: true
+        },
+        onEachFeature(feature, layer) {
+          const p = feature.properties || {};
+          const name =
+            p.nom_qp || p.lib_qp || p.nom_qpv ||
+            p.libelle || p.nom || "Quartier prioritaire";
+          layer.bindTooltip(name, {
+            sticky: true,
+            className: "qpv-label"
+          });
+        }
+      }).addTo(map);
+
+      if (state.qpvLayer?.bringToBack) state.qpvLayer.bringToBack();
+
+      if (state.currentBdnb && state.selectedFeature) {
+        renderBdnb(state.currentBdnb, state.currentEnvelope || {});
+      }
+    } catch (error) {
+      console.warn("QPV non chargé", error);
+      setApiStatus("qpv", "ko", "Indisponible");
+    }
+  }
 
   function selectedQpvContext() {
-    return null;
+    if (!state.qpvLayer || !state.selectedFeature) return null;
+
+    let pointFeature = null;
+
+    try {
+      if (window.turf) {
+        pointFeature = state.selectedFeature.geometry?.type === "Point"
+          ? state.selectedFeature
+          : turf.pointOnFeature(state.selectedFeature);
+      }
+    } catch (error) {
+      console.warn("Point de référence QPV", error);
+    }
+
+    if (!pointFeature) {
+      const bounds = L.geoJSON(state.selectedFeature).getBounds();
+      if (!bounds.isValid()) return null;
+      const center = bounds.getCenter();
+      pointFeature = {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [center.lng, center.lat]
+        },
+        properties: {}
+      };
+    }
+
+    let found = null;
+
+    state.qpvLayer.eachLayer(layer => {
+      if (found || !layer.feature?.geometry) return;
+
+      let inside = false;
+      try {
+        inside = window.turf
+          ? turf.booleanPointInPolygon(pointFeature, layer.feature)
+          : layer.getBounds().contains([
+              pointFeature.geometry.coordinates[1],
+              pointFeature.geometry.coordinates[0]
+            ]);
+      } catch (error) {
+        console.warn("Test d'appartenance QPV", error);
+      }
+
+      if (inside) {
+        const p = layer.feature.properties || {};
+        found =
+          p.nom_qp || p.lib_qp || p.nom_qpv ||
+          p.libelle || p.nom || "Quartier prioritaire";
+      }
+    });
+
+    return found;
   }
 
   async function exportBuildingSheet() {
@@ -1534,17 +1502,10 @@
 
       const p = state.selectedFeature.properties || {};
       const address = Array.isArray(p.addresses) ? p.addresses[0] || {} : {};
+      const qpv = selectedQpvContext();
       const envelope = state.currentEnvelope || {};
       const data = state.currentBdnb;
       const rpls = data.rpls || {};
-      const qpvRaw =
-        rpls.dans_qpv ??
-        rpls.dans_qp ??
-        rpls.qpv ??
-        data?.building?.dans_qpv ??
-        data?.ffo?.dans_qpv ??
-        null;
-      const isInQpv = normalizeBoolean(qpvRaw);
       const isSocialHousing = Number(rpls.nb_log) > 0;
       const generated = new Date().toLocaleString("fr-FR");
       const bdnbVintage = envelope.millesime || "2026-02.a";
@@ -1701,8 +1662,7 @@
         ["Code postal", address.city_zipcode],
         ["Statut RNB", p.status],
         ["Parcelle(s)", parcelRefs.join(", ") || "Non renseignée"],
-        ["Situation QPV", isInQpv === true ? "Oui" : isInQpv === false ? "Non" : "Non renseignée"],
-        ["Source QPV", "BDNB / RPLS 2024"],
+        ["Situation QPV", qpv ? `Oui - ${qpv}` : "Non"],
         ["Millésime QPV", "2024"]
       ].filter(([, value]) => value !== null && value !== undefined && value !== "");
 
@@ -1776,7 +1736,7 @@
       addSection("Fichiers fonciers ouverts", cleanRows(data.ffo || {}), palette.neutral);
       addSection("Adresse BDNB", cleanRows(data.address || {}), palette.neutral);
 
-      const trace = `BDNB ${bdnbVintage} · RPLS 2024 · RNB API courante · Cadastre PCI Express via API Carto · DVF+ Cerema · Sitadel SDES lorsque des dossiers sont rapprochés. Fiche générée le ${generated}. Les données constituent une aide à l’analyse et doivent être vérifiées avant toute décision administrative individuelle.`;
+      const trace = `BDNB ${bdnbVintage} · RPLS 2024 · QPV 2024 · RNB API courante · Cadastre PCI Express via API Carto · DVF+ Cerema · Sitadel SDES lorsque des dossiers sont rapprochés. Fiche générée le ${generated}. Les données constituent une aide à l’analyse et doivent être vérifiées avant toute décision administrative individuelle.`;
       addSection("Millésimes et traçabilité", [["Sources et versions", trace]], palette.identity);
 
       const totalPages = doc.getNumberOfPages();
