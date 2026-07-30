@@ -644,54 +644,71 @@ h1{font-size:32px;line-height:1;margin:4px 0;letter-spacing:-.055em;color:var(--
 }
 
 
-/* Bouton de visibilité QPV */
-.qpv-toggle-control{
-  border:none!important;
-  box-shadow:none!important;
-  background:transparent!important;
+/* Réglages d'affichage de la carte */
+.map-settings{
+  margin-top:14px;
+  padding-top:12px;
+  border-top:1px solid #e5e7eb;
 }
-.qpv-toggle-button{
+.map-settings-title{
+  margin-bottom:7px;
+  color:#64748b;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.layer-toggle{
+  width:100%;
   display:flex;
   align-items:center;
-  gap:7px;
-  min-height:34px;
-  padding:0 11px;
-  border:1px solid rgba(196,59,50,.30);
-  border-radius:10px;
-  background:rgba(255,255,255,.96);
-  box-shadow:0 4px 14px rgba(15,23,42,.10);
-  color:#7d2a25;
-  font:800 10px/1 system-ui,-apple-system,"Segoe UI",sans-serif;
+  gap:9px;
+  min-height:38px;
+  padding:7px 10px;
+  border:1px solid #d9dee8;
+  border-radius:8px;
+  background:#fff;
+  color:#334155;
+  font:700 12px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
   cursor:pointer;
-  white-space:nowrap;
+  text-align:left;
 }
-.qpv-toggle-button:hover{
-  background:#fff7f6;
+.layer-toggle:hover{
+  border-color:#aeb7c5;
+  background:#f8fafc;
 }
-.qpv-toggle-button.off{
-  border-color:#d9dee8;
-  color:#475569;
-  background:rgba(255,255,255,.94);
+.layer-toggle:focus-visible{
+  outline:3px solid rgba(0,0,145,.18);
+  outline-offset:2px;
 }
-.qpv-toggle-swatch{
+.layer-toggle-swatch{
   width:19px;
   height:11px;
-  border:2px dashed #c43b32;
+  flex:0 0 auto;
+  border:2px dashed #94a3b8;
   border-radius:3px;
+  background:transparent;
+}
+.layer-toggle-label{
+  flex:1;
+}
+.layer-toggle-state{
+  color:#64748b;
+  font-size:11px;
+  font-weight:700;
+}
+.layer-toggle.active{
+  border-color:rgba(196,59,50,.35);
+  color:#7d2a25;
+  background:#fff8f7;
+}
+.layer-toggle.active .layer-toggle-swatch{
+  border-color:#c43b32;
   background:rgba(196,59,50,.10);
 }
-.qpv-toggle-button.off .qpv-toggle-swatch{
-  border-color:#94a3b8;
-  background:transparent;
+.layer-toggle.active .layer-toggle-state{
+  color:#9f312b;
 }
 .qpv-map-legend.hidden{
   display:none!important;
-}
-
-@media(max-width:700px){
-  .qpv-toggle-button{
-    min-height:32px;
-    padding:0 9px;
-    font-size:9px;
-  }
 }

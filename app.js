@@ -26,7 +26,7 @@
     metadata: null,
     loadTimer: null,
     qpvLayer: null,
-    qpvVisible: true,
+    qpvVisible: false,
     currentBdnb: null,
     currentEnvelope: null,
     parcels: [],
@@ -94,6 +94,7 @@
   qpvLegend.className = "qpv-map-legend";
   qpvLegend.innerHTML =
     '<span class="qpv-map-swatch"></span><span>Quartier prioritaire de la politique de la ville</span>';
+  qpvLegend.classList.add("hidden");
   document.querySelector(".map-card").appendChild(qpvLegend);
 
   const InfoControl = L.Control.extend({
@@ -115,52 +116,23 @@
   });
   map.addControl(new InfoControl());
 
-  const QpvToggleControl = L.Control.extend({
-    options: { position: "topright" },
-    onAdd() {
-      const container = L.DomUtil.create("div", "leaflet-bar qpv-toggle-control");
-      const button = L.DomUtil.create("button", "qpv-toggle-button", container);
+  const qpvToggle = $("#btn-qpv");
+  qpvToggle?.addEventListener("click", () => {
+    if (!state.qpvLayer) return;
 
-      button.type = "button";
-      button.title = "Afficher ou masquer les quartiers prioritaires";
-      button.setAttribute("aria-pressed", "true");
-      button.innerHTML =
-        '<span class="qpv-toggle-swatch"></span><span class="qpv-toggle-text">Masquer les QPV</span>';
-
-      L.DomEvent.disableClickPropagation(container);
-      L.DomEvent.disableScrollPropagation(container);
-
-      L.DomEvent.on(button, "click", event => {
-        L.DomEvent.preventDefault(event);
-
-        if (!state.qpvLayer) return;
-
-        state.qpvVisible = !state.qpvVisible;
-
-        if (state.qpvVisible) {
-          if (!map.hasLayer(state.qpvLayer)) {
-            state.qpvLayer.addTo(map);
-          }
-          button.classList.remove("off");
-          button.setAttribute("aria-pressed", "true");
-          button.querySelector(".qpv-toggle-text").textContent = "Masquer les QPV";
-          document.querySelector(".qpv-map-legend")?.classList.remove("hidden");
-        } else {
-          if (map.hasLayer(state.qpvLayer)) {
-            map.removeLayer(state.qpvLayer);
-          }
-          button.classList.add("off");
-          button.setAttribute("aria-pressed", "false");
-          button.querySelector(".qpv-toggle-text").textContent = "Afficher les QPV";
-          document.querySelector(".qpv-map-legend")?.classList.add("hidden");
-        }
-      });
-
-      return container;
+    state.qpvVisible = !state.qpvVisible;
+    if (state.qpvVisible) {
+      state.qpvLayer.addTo(map);
+    } else {
+      map.removeLayer(state.qpvLayer);
     }
-  });
 
-  map.addControl(new QpvToggleControl());
+    qpvToggle.classList.toggle("active", state.qpvVisible);
+    qpvToggle.setAttribute("aria-pressed", String(state.qpvVisible));
+    qpvToggle.querySelector(".layer-toggle-state").textContent =
+      state.qpvVisible ? "Visibles" : "Masqués";
+    document.querySelector(".qpv-map-legend")?.classList.toggle("hidden", !state.qpvVisible);
+  });
 
   loadQpvLayer();
 
@@ -1466,7 +1438,7 @@
             className: "qpv-label"
           });
         }
-      }).addTo(map);
+      });
     } catch (error) {
       console.error("Erreur couche QPV intégrée", error);
     }

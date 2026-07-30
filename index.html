@@ -59,6 +59,14 @@
           <button class="action primary" id="btn-buildings" type="button">Voir les bâtiments</button>
           <button class="action" id="btn-locate" type="button">Me localiser</button>
         </div>
+        <div class="map-settings" aria-label="Affichage de la carte">
+          <div class="map-settings-title">Affichage de la carte</div>
+          <button class="layer-toggle" id="btn-qpv" type="button" aria-pressed="false">
+            <span class="layer-toggle-swatch" aria-hidden="true"></span>
+            <span class="layer-toggle-label">Périmètres QPV</span>
+            <span class="layer-toggle-state">Masqués</span>
+          </button>
+        </div>
       </div>
       <div class="list">
         <div class="edu-card">
@@ -160,6 +168,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-image@0.4.0/leaflet-image.js"></script>
-<script src="app.js?v=22-qpv-toggle"></script>
+<script src="app.js?v=23-qpv-display"></script>
 </body>
 </html>
