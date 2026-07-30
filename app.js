@@ -49,7 +49,7 @@
     zoomControl: true,
     preferCanvas: true,
     maxBounds: [[48.63, .7], [49.37, 3.35]]
-  }).setView([49.07, 2.12], 10);
+  }).fitBounds([[48.88, 1.60], [49.25, 2.62]], { padding: [24, 24] });
 
   map.createPane("qpvPane");
   map.getPane("qpvPane").style.zIndex = "350";
@@ -1579,7 +1579,7 @@
         doc.setTextColor(0, 0, 145);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(16);
-        doc.text("Observatoire du bâti du Val-d’Oise", margin + 32, 17);
+        doc.text("Habitat et bâti du Val-d’Oise", margin + 32, 17);
         doc.setTextColor(71, 85, 105);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
@@ -1598,7 +1598,7 @@
         doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
         doc.setFontSize(7);
         doc.setTextColor(100, 116, 139);
-        doc.text("DDT du Val-d’Oise · Observatoire du bâti", margin, pageHeight - 7);
+        doc.text("DDT du Val-d’Oise – Pôle géomatique", margin, pageHeight - 7);
         doc.text(`Page ${pageNumber}`, pageWidth - margin, pageHeight - 7, { align: "right" });
       }
 
