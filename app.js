@@ -1602,7 +1602,7 @@
         doc.setTextColor(0, 0, 145);
         doc.setFont("helvetica", "bold");
         doc.setFontSize(16);
-        doc.text("Habitat et bâti du Val-d’Oise", margin + 32, 17);
+        doc.text("Logement & Habitat du Val-d’Oise", margin + 32, 17);
         doc.setTextColor(71, 85, 105);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
