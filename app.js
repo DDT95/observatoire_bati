@@ -54,12 +54,35 @@
   map.createPane("qpvPane");
   map.getPane("qpvPane").style.zIndex = "350";
   map.getPane("qpvPane").style.pointerEvents = "auto";
+  map.createPane("departmentMaskPane");
+  map.getPane("departmentMaskPane").style.zIndex = "260";
+  map.getPane("departmentMaskPane").style.pointerEvents = "none";
 
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     crossOrigin: true,
     attribution: "© OpenStreetMap contributors"
   }).addTo(map);
+
+  fetch("https://geo.api.gouv.fr/departements/95/communes?fields=nom,code,contour&format=geojson&geometry=contour")
+    .then((response) => response.json())
+    .then((communes) => {
+      const holes = [];
+      communes.features?.forEach((feature) => {
+        const geometry = feature.geometry;
+        if (geometry?.type === "Polygon") holes.push(geometry.coordinates[0]);
+        if (geometry?.type === "MultiPolygon") geometry.coordinates.forEach((polygon) => holes.push(polygon[0]));
+      });
+      L.geoJSON({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]], ...holes] } }, {
+        pane: "departmentMaskPane",
+        interactive: false,
+        style: { stroke: false, fillColor: "#eef1f5", fillOpacity: 0.92, fillRule: "evenodd" }
+      }).addTo(map);
+      const territory = L.geoJSON(communes, { interactive: false, style: { color: "#59616b", weight: 0.7, opacity: 0.55, fillOpacity: 0 } }).addTo(map);
+      const bounds = territory.getBounds();
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], animate: false });
+    })
+    .catch(() => undefined);
 
   const parcelLegend = document.createElement("div");
   parcelLegend.className = "map-parcel-legend";
