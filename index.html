@@ -25,8 +25,8 @@
       <div class="livebox" aria-live="polite">
         <span class="live-dot" id="live-dot"></span>
         <div style="min-width:0">
-          <div class="live-text" id="live-text">Initialisation</div>
-          <div class="live-sub" id="live-sub">RNB + BDNB</div>
+          <div class="live-text" id="live-text">Préparation de la carte</div>
+          <div class="live-sub" id="live-sub">Chargement du Val-d’Oise…</div>
         </div>
       </div>
     </div>
@@ -47,12 +47,21 @@
           <button class="search-submit" type="submit">Rechercher</button>
         </form>
 
-        <div class="info-box">
-          <div class="t">Lecture de la carte</div>
-          <div class="b">
-            Zoomez jusqu’aux bâtiments orange, puis cliquez. Le RNB donne l’identité
-            et la géométrie ; la BDNB complète la fiche avec les données disponibles.
+        <div class="info-box start-guide">
+          <div class="t">Comment commencer&nbsp;?</div>
+          <div class="start-step">
+            <span class="start-step-number">1</span>
+            <span><strong>Recherchez une adresse</strong> ou utilisez «&nbsp;Me localiser&nbsp;».</span>
           </div>
+          <div class="start-step">
+            <span class="start-step-number">2</span>
+            <span><strong>Zoomez jusqu’aux bâtiments orange</strong>, puis cliquez sur l’un d’eux.</span>
+          </div>
+          <div class="start-step">
+            <span class="start-step-number">3</span>
+            <span>La page charge alors <strong>la fiche et les données disponibles</strong>.</span>
+          </div>
+          <div class="start-note">Les données détaillées sont interrogées à la demande, après sélection d’un bâtiment.</div>
         </div>
 
         <div class="actions actions-simple">
@@ -79,33 +88,33 @@
               <h3>Sources mobilisées</h3>
               <p>État des connexions aux services publics utilisés par la page.</p>
             </div>
-            <span class="global-api-state" id="global-api-state">Initialisation</span>
+            <span class="global-api-state" id="global-api-state">À la demande</span>
           </div>
           <div class="source-monitor" id="source-monitor">
             <div class="source-monitor-row" data-source="rnb">
               <span class="api-light pending"></span>
               <div><strong>RNB</strong><small>Identité et géométrie du bâtiment</small></div>
-              <span class="api-state">En attente</span>
+              <span class="api-state">À la demande</span>
             </div>
             <div class="source-monitor-row" data-source="bdnb">
               <span class="api-light pending"></span>
               <div><strong>BDNB</strong><small>DPE, RPLS, copropriété et risques</small></div>
-              <span class="api-state">En attente</span>
+              <span class="api-state">À la demande</span>
             </div>
             <div class="source-monitor-row" data-source="cadastre">
               <span class="api-light pending"></span>
               <div><strong>Cadastre IGN</strong><small>Parcelles cadastrales</small></div>
-              <span class="api-state">En attente</span>
+              <span class="api-state">À la demande</span>
             </div>
             <div class="source-monitor-row" data-source="dvf">
               <span class="api-light pending"></span>
               <div><strong>DVF+ Cerema</strong><small>Transactions immobilières</small></div>
-              <span class="api-state">En attente</span>
+              <span class="api-state">À la demande</span>
             </div>
             <div class="source-monitor-row" data-source="sitadel">
               <span class="api-light pending"></span>
               <div><strong>Sitadel · SDES</strong><small>Autorisations d’urbanisme</small></div>
-              <span class="api-state">En attente</span>
+              <span class="api-state">À la demande</span>
             </div>
           </div>
         </div>
@@ -116,8 +125,8 @@
       <div class="map-card">
         <div id="map"></div>
         <div class="map-help" id="map-help">
-          <b>Zoomez davantage</b>
-          <span>Les emprises RNB apparaissent à partir du zoom 16.</span>
+          <b>Deux façons de commencer</b>
+          <span>Recherchez une adresse à gauche ou zoomez sur la carte.</span>
         </div>
       </div>
     </section>
@@ -168,6 +177,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-image@0.4.0/leaflet-image.js"></script>
-<script src="app.js?v=23-qpv-display"></script>
+<script src="app.js?v=24-start-guide"></script>
 </body>
 </html>

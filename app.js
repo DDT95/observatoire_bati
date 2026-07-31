@@ -64,6 +64,9 @@
     attribution: "© OpenStreetMap contributors"
   }).addTo(map);
 
+  live("", "Préparation de la carte", "Chargement du Val-d’Oise…");
+  progress(20);
+
   fetch("https://geo.api.gouv.fr/departements/95/communes?fields=nom,code,contour&format=geojson&geometry=contour")
     .then((response) => response.json())
     .then((communes) => {
@@ -81,8 +84,14 @@
       const territory = L.geoJSON(communes, { interactive: false, style: { color: "#59616b", weight: 0.7, opacity: 0.55, fillOpacity: 0 } }).addTo(map);
       const bounds = territory.getBounds();
       if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], animate: false });
+      progress(100);
+      live("ok", "Carte prête", "Recherchez une adresse ou zoomez");
+      setTimeout(() => progress(0), 500);
     })
-    .catch(() => undefined);
+    .catch(() => {
+      progress(0);
+      live("", "Carte prête", "Recherchez une adresse ou zoomez");
+    });
 
   const parcelLegend = document.createElement("div");
   parcelLegend.className = "map-parcel-legend";
@@ -181,7 +190,7 @@
       global.classList.add("ok");
       global.textContent = "Services actifs";
     } else {
-      global.textContent = "Initialisation";
+      global.textContent = "À la demande";
     }
   }
 
@@ -267,7 +276,8 @@
         state.geoLayer = null;
       }
       $("#map-help").style.display = "";
-      live("", "Zoomez pour afficher les bâtiments", `niveau ${CFG.minZoom} minimum`);
+      setHtmlSafe("#map-help", `<b>Zoomez pour voir les bâtiments</b><span>Niveau ${CFG.minZoom} minimum, ou recherchez directement une adresse.</span>`);
+      if (state.metadata) live("ok", "Carte prête", "Recherchez une adresse ou zoomez");
       return;
     }
 
