@@ -1952,10 +1952,6 @@
     live("", "Zoom bâtiment activé", "cliquez sur une emprise orange");
   });
 
-  $("#btn-locate").addEventListener("click", () => {
-    map.locate({ setView: true, maxZoom: 18 });
-  });
-
   loadMetadata();
   loadVisibleBuildings();
 })();
