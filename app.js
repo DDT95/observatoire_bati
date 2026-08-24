@@ -49,7 +49,7 @@
     zoomControl: true,
     preferCanvas: true,
     maxBounds: [[48.63, .7], [49.37, 3.35]]
-  }).fitBounds([[48.88, 1.60], [49.25, 2.62]], { padding: [24, 24] });
+  }).fitBounds([[48.89, 1.60], [49.25, 2.60]], { padding: [8, 8] });
 
   map.createPane("qpvPane");
   map.getPane("qpvPane").style.zIndex = "350";
@@ -83,7 +83,7 @@
       }).addTo(map);
       const territory = L.geoJSON(communes, { interactive: false, style: { color: "#59616b", weight: 0.7, opacity: 0.55, fillOpacity: 0 } }).addTo(map);
       const bounds = territory.getBounds();
-      if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], animate: false });
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [10, 10], animate: false });
       progress(100);
       live("ok", "Carte prête", "Recherchez une adresse ou zoomez");
       setTimeout(() => progress(0), 500);
