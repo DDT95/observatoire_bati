@@ -32,6 +32,8 @@
     publicLandData: null,
     publicLandIndex: null,
     publicLandLoading: false,
+    publicLandLayer: null,
+    publicLandLoadTimer: null,
     currentBdnb: null,
     currentEnvelope: null,
     parcels: [],
@@ -62,6 +64,9 @@
   map.createPane("departmentMaskPane");
   map.getPane("departmentMaskPane").style.zIndex = "260";
   map.getPane("departmentMaskPane").style.pointerEvents = "none";
+  map.createPane("publicLandPane");
+  map.getPane("publicLandPane").style.zIndex = "420";
+  map.getPane("publicLandPane").style.pointerEvents = "auto";
 
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -161,6 +166,13 @@
 
     if (state.geoLayer) state.geoLayer.setStyle(styleFeature);
     if (state.currentBdnb) renderBdnb(state.currentBdnb, state.currentEnvelope || {});
+
+    if (state.publicHighlight) {
+      loadVisiblePublicLand();
+    } else if (state.publicLandLayer) {
+      state.publicLandLayer.remove();
+      state.publicLandLayer = null;
+    }
   });
 
   async function ensurePublicLandData(toggleButton) {
@@ -191,6 +203,73 @@
       if (match) return { code: match[0], label: match[1], owner: match[2] };
     }
     return null;
+  }
+
+  async function loadVisiblePublicLand() {
+    clearTimeout(state.publicLandLoadTimer);
+
+    if (!state.publicHighlight || map.getZoom() < CFG.minZoom) {
+      if (state.publicLandLayer) {
+        state.publicLandLayer.remove();
+        state.publicLandLayer = null;
+      }
+      return;
+    }
+
+    await ensurePublicLandData();
+    if (!state.publicLandIndex) return;
+
+    const b = map.getBounds();
+    const geom = {
+      type: "Polygon",
+      coordinates: [[
+        [b.getWest(), b.getSouth()],
+        [b.getEast(), b.getSouth()],
+        [b.getEast(), b.getNorth()],
+        [b.getWest(), b.getNorth()],
+        [b.getWest(), b.getSouth()]
+      ]]
+    };
+
+    try {
+      const encodedGeom = encodeURIComponent(JSON.stringify(geom));
+      const response = await getJSON(`${CFG.cadastreApi}?geom=${encodedGeom}`);
+      const features =
+        response?.features ||
+        response?.data?.features ||
+        (Array.isArray(response) ? response : []);
+
+      const matches = features
+        .map(feature => normalizeParcel(feature))
+        .filter(Boolean)
+        .map(feature => ({ feature, match: state.publicLandIndex[normalizeParcelId(parcelReference(feature))] }))
+        .filter(item => item.match);
+
+      if (state.publicLandLayer) {
+        state.publicLandLayer.remove();
+        state.publicLandLayer = null;
+      }
+      if (!matches.length) return;
+
+      state.publicLandLayer = L.geoJSON(
+        { type: "FeatureCollection", features: matches.map(item => item.feature) },
+        {
+          pane: "publicLandPane",
+          style: { color: "#0f7a3d", weight: 3, fillColor: "#22a35a", fillOpacity: .4 },
+          onEachFeature(feature, layer) {
+            const match = state.publicLandIndex[normalizeParcelId(parcelReference(feature))];
+            if (match) {
+              layer.bindTooltip(
+                `<b>${escapeHtml(match[2] || "Propriétaire public")}</b><br>${escapeHtml(match[1] || "")}`,
+                { sticky: true }
+              );
+            }
+          }
+        }
+      ).addTo(map);
+    } catch (error) {
+      console.warn("Foncier public (vue courante) indisponible", error);
+    }
   }
 
   loadQpvLayer();
@@ -2024,6 +2103,8 @@
   map.on("moveend", () => {
     clearTimeout(state.loadTimer);
     state.loadTimer = setTimeout(loadVisibleBuildings, 250);
+    clearTimeout(state.publicLandLoadTimer);
+    state.publicLandLoadTimer = setTimeout(loadVisiblePublicLand, 250);
   });
 
   $("#search-form").addEventListener("submit", event => {
