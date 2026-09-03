@@ -27,6 +27,7 @@
     loadTimer: null,
     qpvLayer: null,
     qpvVisible: false,
+    publicHighlight: false,
     currentBdnb: null,
     currentEnvelope: null,
     parcels: [],
@@ -143,6 +144,18 @@
     document.querySelector(".qpv-map-legend")?.classList.toggle("hidden", !state.qpvVisible);
   });
 
+  const publicToggle = $("#btn-public-buildings");
+  publicToggle?.addEventListener("click", () => {
+    state.publicHighlight = !state.publicHighlight;
+
+    publicToggle.classList.toggle("active", state.publicHighlight);
+    publicToggle.setAttribute("aria-pressed", String(state.publicHighlight));
+    publicToggle.querySelector(".layer-toggle-state").textContent =
+      state.publicHighlight ? "Visibles" : "Masqués";
+
+    if (state.geoLayer) state.geoLayer.setStyle(styleFeature);
+  });
+
   loadQpvLayer();
 
   map.on("tileerror", () => {
@@ -240,8 +253,19 @@
       null;
   }
 
+  function isPublicUsage(usage) {
+    return /public/i.test(String(usage?.categorie_usage_propriete || ""));
+  }
+
+  function isSelectedBuildingPublic() {
+    return isPublicUsage(state.currentBdnb?.usage);
+  }
+
   function styleFeature(feature) {
     const selected = featureRnbId(feature) === state.selectedRnbId;
+    if (selected && state.publicHighlight && isSelectedBuildingPublic()) {
+      return { color: "#0f7a3d", weight: 3, fillColor: "#22a35a", fillOpacity: .55 };
+    }
     return {
       color: selected ? "#000091" : "#8d3d1e",
       weight: selected ? 3 : 1,
@@ -261,6 +285,7 @@
       L.DomEvent.stopPropagation(event);
       state.selectedFeature = feature;
       state.selectedRnbId = rnbId;
+      state.currentBdnb = null;
       if (state.geoLayer) state.geoLayer.setStyle(styleFeature);
       openLocalBuilding(feature);
       if (rnbId) await loadBdnb(rnbId);
@@ -477,6 +502,7 @@
     state.currentBdnb = data;
     state.currentEnvelope = envelope;
     $("#btn-export").disabled = false;
+    if (state.publicHighlight && state.geoLayer) state.geoLayer.setStyle(styleFeature);
     const dpe = data?.dpe || {};
     const rpls = data?.rpls || {};
     const usage = data?.usage || {};
@@ -638,7 +664,9 @@
       socialShare,
       dpeClass,
       dpeDate,
-      qpvContext
+      qpvContext,
+      isPublicBuilding: isPublicUsage(usage),
+      usageCategory: usage.categorie_usage_propriete
     });
 
     const qpvStatusHtml = `
@@ -718,6 +746,12 @@
           context.dpeClass || "Absent",
           context.dpeDate ? `Diagnostic du ${formatDate(context.dpeDate)}` : "Aucun DPE représentatif",
           Boolean(context.dpeClass)
+        )}
+        ${sourceCard(
+          "Bâtiment public",
+          context.isPublicBuilding ? "Oui" : "Non",
+          context.usageCategory || "Catégorie de propriété non renseignée",
+          context.isPublicBuilding
         )}
         ${sourceCard(
           "Cadastre",

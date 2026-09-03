@@ -47,23 +47,6 @@
           <button class="search-submit" type="submit">Rechercher</button>
         </form>
 
-        <div class="info-box start-guide">
-          <div class="t">Comment commencer&nbsp;?</div>
-          <div class="start-step">
-            <span class="start-step-number">1</span>
-            <span><strong>Recherchez une adresse</strong> dans la barre ci-dessus.</span>
-          </div>
-          <div class="start-step">
-            <span class="start-step-number">2</span>
-            <span><strong>Zoomez jusqu’aux bâtiments orange</strong>, puis cliquez sur l’un d’eux.</span>
-          </div>
-          <div class="start-step">
-            <span class="start-step-number">3</span>
-            <span>La page charge alors <strong>la fiche et les données disponibles</strong>.</span>
-          </div>
-          <div class="start-note">Les données détaillées sont interrogées à la demande, après sélection d’un bâtiment.</div>
-        </div>
-
         <div class="actions actions-simple">
           <button class="action primary" id="btn-buildings" type="button">Voir les bâtiments</button>
         </div>
@@ -74,13 +57,14 @@
             <span class="layer-toggle-label">Périmètres QPV</span>
             <span class="layer-toggle-state">Masqués</span>
           </button>
+          <button class="layer-toggle public-toggle" id="btn-public-buildings" type="button" aria-pressed="false">
+            <span class="layer-toggle-swatch" aria-hidden="true"></span>
+            <span class="layer-toggle-label">Bâtiments publics</span>
+            <span class="layer-toggle-state">Masqués</span>
+          </button>
         </div>
       </div>
       <div class="list">
-        <div class="edu-card">
-          <h3>À quoi sert cet outil&nbsp;?</h3>
-          <p>Identifier rapidement un bâtiment et consulter les informations utiles aux politiques de l’habitat.</p>
-        </div>
         <div class="edu-card source-monitor-card">
           <div class="source-monitor-title">
             <div>
@@ -176,6 +160,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet-image@0.4.0/leaflet-image.js"></script>
-<script src="app.js?v=24-start-guide"></script>
+<script src="app.js?v=25-public-toggle"></script>
 </body>
 </html>
