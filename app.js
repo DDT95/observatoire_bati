@@ -32,8 +32,7 @@
     publicLandData: null,
     publicLandIndex: null,
     publicLandLoading: false,
-    publicLandLayer: null,
-    publicLandLoadTimer: null,
+    publicBuildingCache: new Map(),
     currentBdnb: null,
     currentEnvelope: null,
     parcels: [],
@@ -64,9 +63,6 @@
   map.createPane("departmentMaskPane");
   map.getPane("departmentMaskPane").style.zIndex = "260";
   map.getPane("departmentMaskPane").style.pointerEvents = "none";
-  map.createPane("publicLandPane");
-  map.getPane("publicLandPane").style.zIndex = "420";
-  map.getPane("publicLandPane").style.pointerEvents = "auto";
 
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -167,12 +163,7 @@
     if (state.geoLayer) state.geoLayer.setStyle(styleFeature);
     if (state.currentBdnb) renderBdnb(state.currentBdnb, state.currentEnvelope || {});
 
-    if (state.publicHighlight) {
-      loadVisiblePublicLand();
-    } else if (state.publicLandLayer) {
-      state.publicLandLayer.remove();
-      state.publicLandLayer = null;
-    }
+    if (state.publicHighlight) refreshPublicHighlightForVisibleBuildings();
   });
 
   async function ensurePublicLandData(toggleButton) {
@@ -185,7 +176,7 @@
       state.publicLandData = await response.json();
       state.publicLandIndex = {};
       for (const [key, value] of Object.entries(state.publicLandData)) {
-        state.publicLandIndex[normalizeParcelId(key)] = value;
+        state.publicLandIndex[canonicalParcelId(key)] = value;
       }
     } catch (error) {
       console.warn("Référentiel du foncier public (DGFiP) indisponible", error);
@@ -199,77 +190,84 @@
     for (const parcel of state.parcels) {
       const ref = parcelReference(parcel);
       if (!ref) continue;
-      const match = state.publicLandIndex[normalizeParcelId(ref)];
+      const match = state.publicLandIndex[canonicalParcelId(ref)];
       if (match) return { code: match[0], label: match[1], owner: match[2] };
     }
     return null;
   }
 
-  async function loadVisiblePublicLand() {
-    clearTimeout(state.publicLandLoadTimer);
-
-    if (!state.publicHighlight || map.getZoom() < CFG.minZoom) {
-      if (state.publicLandLayer) {
-        state.publicLandLayer.remove();
-        state.publicLandLayer = null;
-      }
-      return;
+  async function fetchCadastreParcels(geometry) {
+    if (!geometry) return [];
+    const encodedGeom = encodeURIComponent(JSON.stringify(geometry));
+    let response;
+    try {
+      response = await getJSON(`${CFG.cadastreApi}?geom=${encodedGeom}`);
+    } catch (getError) {
+      const postResponse = await fetch(CFG.cadastreApi, {
+        method: "POST",
+        mode: "cors",
+        cache: "no-store",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ geom: geometry })
+      });
+      if (!postResponse.ok) throw new Error(`Cadastre HTTP ${postResponse.status}`);
+      response = await postResponse.json();
     }
+    return response?.features || response?.data?.features || (Array.isArray(response) ? response : []);
+  }
 
+  async function checkBuildingPublicLand(feature) {
+    try {
+      const rawFeatures = await fetchCadastreParcels(feature?.geometry);
+      const parcels = rawFeatures.map(normalizeParcel).filter(Boolean);
+      for (const parcel of parcels) {
+        const ref = parcelReference(parcel);
+        if (!ref) continue;
+        const match = state.publicLandIndex[canonicalParcelId(ref)];
+        if (match) return { isPublic: true, code: match[0], label: match[1], owner: match[2] };
+      }
+      return { isPublic: false };
+    } catch (error) {
+      console.warn("Cadastre indisponible pour ce bâtiment", error);
+      return null;
+    }
+  }
+
+  async function refreshPublicHighlightForVisibleBuildings() {
+    if (!state.publicHighlight || !state.geoLayer) return;
     await ensurePublicLandData();
     if (!state.publicLandIndex) return;
 
-    const b = map.getBounds();
-    const geom = {
-      type: "Polygon",
-      coordinates: [[
-        [b.getWest(), b.getSouth()],
-        [b.getEast(), b.getSouth()],
-        [b.getEast(), b.getNorth()],
-        [b.getWest(), b.getNorth()],
-        [b.getWest(), b.getSouth()]
-      ]]
-    };
+    const pending = [];
+    state.geoLayer.eachLayer(layer => {
+      const feature = layer.feature;
+      const rnbId = featureRnbId(feature);
+      if (!rnbId || state.publicBuildingCache.has(rnbId)) return;
+      pending.push({ rnbId, feature, layer });
+    });
+    if (!pending.length) return;
 
-    try {
-      const encodedGeom = encodeURIComponent(JSON.stringify(geom));
-      const response = await getJSON(`${CFG.cadastreApi}?geom=${encodedGeom}`);
-      const features =
-        response?.features ||
-        response?.data?.features ||
-        (Array.isArray(response) ? response : []);
-
-      const matches = features
-        .map(feature => normalizeParcel(feature))
-        .filter(Boolean)
-        .map(feature => ({ feature, match: state.publicLandIndex[normalizeParcelId(parcelReference(feature))] }))
-        .filter(item => item.match);
-
-      if (state.publicLandLayer) {
-        state.publicLandLayer.remove();
-        state.publicLandLayer = null;
-      }
-      if (!matches.length) return;
-
-      state.publicLandLayer = L.geoJSON(
-        { type: "FeatureCollection", features: matches.map(item => item.feature) },
-        {
-          pane: "publicLandPane",
-          style: { color: "#0f7a3d", weight: 3, fillColor: "#22a35a", fillOpacity: .4 },
-          onEachFeature(feature, layer) {
-            const match = state.publicLandIndex[normalizeParcelId(parcelReference(feature))];
-            if (match) {
-              layer.bindTooltip(
-                `<b>${escapeHtml(match[2] || "Propriétaire public")}</b><br>${escapeHtml(match[1] || "")}`,
-                { sticky: true }
-              );
-            }
-          }
+    const CONCURRENCY = 4;
+    let cursor = 0;
+    async function worker() {
+      while (cursor < pending.length) {
+        const item = pending[cursor++];
+        const result = await checkBuildingPublicLand(item.feature);
+        if (!result) continue;
+        state.publicBuildingCache.set(item.rnbId, result);
+        if (!state.publicHighlight) continue;
+        item.layer.setStyle(styleFeature(item.feature));
+        if (result.isPublic) {
+          item.layer.setTooltipContent(
+            `ID-RNB · ${item.rnbId}<br><b>${escapeHtml(result.owner || "Propriétaire public")}</b>`
+          );
         }
-      ).addTo(map);
-    } catch (error) {
-      console.warn("Foncier public (vue courante) indisponible", error);
+      }
     }
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   }
 
   loadQpvLayer();
@@ -401,9 +399,14 @@
   }
 
   function styleFeature(feature) {
-    const selected = featureRnbId(feature) === state.selectedRnbId;
-    if (selected && state.publicHighlight && isSelectedBuildingPublic()) {
-      return { color: "#0f7a3d", weight: 3, fillColor: "#22a35a", fillOpacity: .55 };
+    const rnbId = featureRnbId(feature);
+    const selected = rnbId === state.selectedRnbId;
+    const isPublic = state.publicHighlight && (
+      state.publicBuildingCache.get(rnbId)?.isPublic ||
+      (selected && isSelectedBuildingPublic())
+    );
+    if (isPublic) {
+      return { color: "#0f7a3d", weight: selected ? 3 : 2, fillColor: "#22a35a", fillOpacity: selected ? .6 : .48 };
     }
     return {
       color: selected ? "#000091" : "#8d3d1e",
@@ -469,6 +472,8 @@
       live("ok", `${count} bâtiments chargés`, "cliquez sur une emprise");
       progress(100);
       setTimeout(() => progress(0), 450);
+
+      if (state.publicHighlight) refreshPublicHighlightForVisibleBuildings();
     } catch (error) {
       console.error(error);
       setApiStatus("rnb", "ko", "Indisponible");
@@ -1069,6 +1074,15 @@
     return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   }
 
+  function canonicalParcelId(value) {
+    const id = String(value || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+    // Format cadastral IGN à 14 caractères : dép(2)+commune(3)+préfixe(3)+section(2)+numéro(4).
+    // Certaines sources (dont le référentiel DGFiP) omettent le zéro de tête d'une
+    // section à une seule lettre (ex. "B" au lieu de "0B"), donnant 13 caractères.
+    if (id.length === 13) return id.slice(0, 8) + "0" + id.slice(8);
+    return id;
+  }
+
   function renderSitadelSection() {
     if (!state.sitadel.length) return "";
 
@@ -1303,30 +1317,7 @@
     if (!geometry) return;
 
     try {
-      const encodedGeom = encodeURIComponent(JSON.stringify(geometry));
-      let response;
-
-      try {
-        response = await getJSON(`${CFG.cadastreApi}?geom=${encodedGeom}`);
-      } catch (getError) {
-        const postResponse = await fetch(CFG.cadastreApi, {
-          method: "POST",
-          mode: "cors",
-          cache: "no-store",
-          headers: {
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ geom: geometry })
-        });
-        if (!postResponse.ok) throw new Error(`Cadastre HTTP ${postResponse.status}`);
-        response = await postResponse.json();
-      }
-
-      const features =
-        response?.features ||
-        response?.data?.features ||
-        (Array.isArray(response) ? response : []);
+      const features = await fetchCadastreParcels(geometry);
 
       state.parcels = rankParcelsByOverlap(
         features.map(parcel => normalizeParcel(parcel)).filter(Boolean),
@@ -2103,8 +2094,6 @@
   map.on("moveend", () => {
     clearTimeout(state.loadTimer);
     state.loadTimer = setTimeout(loadVisibleBuildings, 250);
-    clearTimeout(state.publicLandLoadTimer);
-    state.publicLandLoadTimer = setTimeout(loadVisiblePublicLand, 250);
   });
 
   $("#search-form").addEventListener("submit", event => {
