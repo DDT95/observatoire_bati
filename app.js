@@ -13,6 +13,7 @@
     ],
     sitadelDatafile: "8b35affb-55fc-4c1f-915b-7750f974446a",
     didoBase: "https://data.statistiques.developpement-durable.gouv.fr/dido/api/v1/datafiles",
+    publicLandData: "data/foncier-public-95.json",
     minZoom: 16
   };
 
@@ -28,6 +29,9 @@
     qpvLayer: null,
     qpvVisible: false,
     publicHighlight: false,
+    publicLandData: null,
+    publicLandIndex: null,
+    publicLandLoading: false,
     currentBdnb: null,
     currentEnvelope: null,
     parcels: [],
@@ -145,16 +149,49 @@
   });
 
   const publicToggle = $("#btn-public-buildings");
-  publicToggle?.addEventListener("click", () => {
+  publicToggle?.addEventListener("click", async () => {
     state.publicHighlight = !state.publicHighlight;
-
     publicToggle.classList.toggle("active", state.publicHighlight);
     publicToggle.setAttribute("aria-pressed", String(state.publicHighlight));
+
+    if (state.publicHighlight) await ensurePublicLandData(publicToggle);
+
     publicToggle.querySelector(".layer-toggle-state").textContent =
-      state.publicHighlight ? "Visibles" : "Masqués";
+      state.publicHighlight ? "Actif" : "Inactif";
 
     if (state.geoLayer) state.geoLayer.setStyle(styleFeature);
+    if (state.currentBdnb) renderBdnb(state.currentBdnb, state.currentEnvelope || {});
   });
+
+  async function ensurePublicLandData(toggleButton) {
+    if (state.publicLandData || state.publicLandLoading) return;
+    state.publicLandLoading = true;
+    if (toggleButton) toggleButton.querySelector(".layer-toggle-state").textContent = "Chargement…";
+    try {
+      const response = await fetch(CFG.publicLandData, { headers: { "Accept": "application/json" } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      state.publicLandData = await response.json();
+      state.publicLandIndex = {};
+      for (const [key, value] of Object.entries(state.publicLandData)) {
+        state.publicLandIndex[normalizeParcelId(key)] = value;
+      }
+    } catch (error) {
+      console.warn("Référentiel du foncier public (DGFiP) indisponible", error);
+    } finally {
+      state.publicLandLoading = false;
+    }
+  }
+
+  function publicLandMatchForSelection() {
+    if (!state.publicLandIndex || !state.parcels.length) return null;
+    for (const parcel of state.parcels) {
+      const ref = parcelReference(parcel);
+      if (!ref) continue;
+      const match = state.publicLandIndex[normalizeParcelId(ref)];
+      if (match) return { code: match[0], label: match[1], owner: match[2] };
+    }
+    return null;
+  }
 
   loadQpvLayer();
 
@@ -258,7 +295,30 @@
   }
 
   function isSelectedBuildingPublic() {
+    if (publicLandMatchForSelection()) return true;
+    if (state.publicLandIndex) return false;
     return isPublicUsage(state.currentBdnb?.usage);
+  }
+
+  function publicBuildingContext(usage) {
+    const match = publicLandMatchForSelection();
+    if (match) {
+      return {
+        isPublicBuilding: true,
+        usageCategory: `${match.owner} · ${match.label} (parcelle DGFiP)`
+      };
+    }
+    if (state.publicLandIndex) {
+      return {
+        isPublicBuilding: false,
+        usageCategory: "Aucune parcelle publique DGFiP identifiée pour ce bâtiment"
+      };
+    }
+    return {
+      isPublicBuilding: isPublicUsage(usage),
+      usageCategory: usage.categorie_usage_propriete ||
+        "Activez le switch « Bâtiments publics » pour une détection fiable (DGFiP)"
+    };
   }
 
   function styleFeature(feature) {
@@ -665,8 +725,7 @@
       dpeClass,
       dpeDate,
       qpvContext,
-      isPublicBuilding: isPublicUsage(usage),
-      usageCategory: usage.categorie_usage_propriete
+      ...publicBuildingContext(usage)
     });
 
     const qpvStatusHtml = `
@@ -1308,6 +1367,7 @@
   }
 
   function refreshDrawerAfterParcels() {
+    if (state.publicHighlight && state.geoLayer) state.geoLayer.setStyle(styleFeature);
     if (!state.currentBdnb || !state.selectedFeature) return;
     renderBdnb(state.currentBdnb, state.currentEnvelope || {});
   }
