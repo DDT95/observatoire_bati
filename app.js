@@ -665,10 +665,14 @@
       dpe.classe_emission_ges ||
       dpe.classe_emission_ges_arrete_2012 ||
       null;
-    const dpeConsumption =
+    const dpeConsumptionRaw =
       dpe.conso_5_usages_ep_m2 ??
       dpe.conso_3_usages_ep_m2_arrete_2012 ??
       null;
+    const dpeConsumption =
+      typeof dpeConsumptionRaw === "number" && Number.isFinite(dpeConsumptionRaw)
+        ? Math.round(dpeConsumptionRaw)
+        : dpeConsumptionRaw;
     const dpeDate =
       dpe.date_etablissement_dpe ||
       dpe.date_reception_dpe ||
